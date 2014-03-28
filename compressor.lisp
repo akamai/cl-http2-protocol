@@ -1,7 +1,5 @@
 (in-package :http2)
 
-(declaim (optimize (debug 3) (safety 3) (speed 0) (space 0) (compilation-speed 0)))
-
 (defparameter *req-defaults*
   '((":scheme"             . "http")
     (":scheme"             . "https") 
@@ -100,7 +98,7 @@
 	 	 (cur (position idx refset :key #'car)))
 
 	    (if cur
-		(array-delete-at refset cur)
+		(vector-delete-at refset cur)
 		(progn
 		  (setf emit (elt table idx))
 		  (vector-push-extend (cons idx emit) refset))))

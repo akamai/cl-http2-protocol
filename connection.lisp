@@ -1,7 +1,5 @@
 (in-package :http2)
 
-(declaim (optimize (debug 3) (safety 3) (speed 0) (space 0) (compilation-speed 0)))
-
 (defparameter *default-flow-window* 65535
   "Default connection and stream flow control window (64KB)")
 
@@ -9,11 +7,9 @@
   "Default stream priority (lower values are higher priority)")
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defparameter *connection-header-string*
-    (concatenate 'string "PRI * HTTP/2.0" #1='(#\Return #\Linefeed) #1# "SM" #1# #1#)
-    "Default connection \"fast-fail\" preamble string as defined by the spec")
-
-  (defparameter *connection-header* (string-to-bytes *connection-header-string*)))
+  (defparameter *connection-header*
+    (buffer-simple (concatenate 'string "PRI * HTTP/2.0" #1='(#\Return #\Linefeed) #1# "SM" #1# #1#))
+    "Default connection \"fast-fail\" preamble string as defined by the spec"))
 
 (defclass connection (flowbuffer-include emitter-include error-include)
   ((state :reader conn-state)
@@ -89,15 +85,15 @@ stream frames are passed to appropriate stream objects."
 	; Client connection header is 24 byte connection header followed by
 	; SETTINGS frame. Server connection header is SETTINGS frame only.
 	(when (eq state :new)
-	  (if (< (buffer-size recv-buffer) #.(length *connection-header*))
-	      (if (mismatch (buffer-data recv-buffer)
-			    *connection-header*
-			    :end2 (buffer-size recv-buffer))
+	  (if (< (buffer-size recv-buffer) #.(buffer-size *connection-header*))
+	      (if (buffer-mismatch recv-buffer
+				   *connection-header*
+				   :end2 (buffer-size recv-buffer))
 		  (raise 'http2-handshake-error)
 		  (return-from receive))
-	      (if (mismatch (buffer-data (buffer-read recv-buffer #.(length *connection-header*)))
-			    *connection-header*
-			    :end1 #.(length *connection-header*))
+	      (if (buffer-mismatch (buffer-read recv-buffer #.(buffer-size *connection-header*))
+				   *connection-header*
+				   :end1 #.(buffer-size *connection-header*))
 		  (raise 'http2-handshake-error)
 		  (progn
 		    (setf state :connection-header)

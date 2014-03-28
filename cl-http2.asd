@@ -8,7 +8,8 @@
 (defsystem :cl-http2
   :description "HTTP/2.0 draft-06 implementation with client/server examples.
 Originally a port of Ruby code by Ilya Grigorik, see: https://github.com/igrigorik/http-2
-For HTTP/2.0 draft-06, see: http://tools.ietf.org/html/draft-ietf-httpbis-http2-06"
+For HTTP/2.0 draft-06, see: http://tools.ietf.org/html/draft-ietf-httpbis-http2-06
+For other implementations, see: https://github.com/http2/http2-spec/wiki/Implementations"
   :version "0.6.3"
   :author "Martin Flack <mflack@akamai.com>"
   :licence "MIT"

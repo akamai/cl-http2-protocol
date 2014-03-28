@@ -12,10 +12,13 @@
 ; To abstract networking differences when we wrap in SSL versus when
 ; we don't, a NET class is defined that can NET-SOCKET-LISTEN,
 ; NET-SOCKET-ACCEPT, NET-SOCKET-PREPARE-SERVER, NET-SOCKET-CLOSE,
-; NET-SOCKET-SHUTDOWN, NET-WRITE-VECTOR, NET-READ-VECTOR (non
-; blocking), and NET-FINISH-OUTPUT. There are two versions, one for
-; SSL, NET-SSL, and one for plain, NET-PLAIN. We normalize calls,
-; housekeeping, and differences in exceptions thrown in this manner.
+; NET-SOCKET-SHUTDOWN, NET-WRITE-VECTOR, NET-READ-VECTOR, and
+; NET-FINISH-OUTPUT. There are two versions, one for SSL, NET-SSL, and
+; one for plain, NET-PLAIN. We normalize calls, housekeeping, and
+; differences in exceptions. Importantly, NET-READ-VECTOR must return
+; 0 for no bytes read (think EAGAIN), a number of bytes read from 1
+; up to the N provided depending on what was available, or NIL when
+; the peer has gracefully closed their end of the socket.
 ;
 ; Because eventually HTTP/2.0 will settle on whether TLS is required
 ; and related issues, this is likely to be simplified in the future.
@@ -133,18 +136,66 @@
 #+sbcl
 (defmethod net-read-vector ((net net-plain) bytes n)
   (with-slots (socket) net
+    (unless (sb-bsd-sockets:socket-open-p socket)
+      (error 'end-of-file :stream socket))
     (multiple-value-bind (buf bytes-read peer)
 	(sb-bsd-sockets:socket-receive socket bytes n)
       (declare (ignore buf peer))
-      bytes-read)))
+      (cond ((null bytes-read) 0)
+	    ((zerop bytes-read) nil)
+	    (t bytes-read)))))
 
 #+sbcl
 (defmethod net-finish-output ((net net-plain))
   nil)
 
+(defclass net-plain-usocket (net) ()
+  (:documentation "Regular socket using USOCKET"))
+
+(defmethod net-socket-listen ((net net-plain-usocket) host port)
+  (with-slots (listener) net
+    (let ((server (usocket:socket-listen host port :reuse-address t :backlog 8 :element-type '(unsigned-byte 8))))
+      (setf listener server))))
+
+(defmethod net-socket-accept ((net net-plain-usocket))
+  (with-slots (raw-socket listener) net
+    (setf raw-socket (usocket:socket-accept listener))))
+
+(defmethod net-socket-prepare-server ((net net-plain-usocket))
+  (with-slots (raw-socket socket) net
+    (setf socket (usocket:socket-stream raw-socket))))
+
+(defmethod net-socket-close ((net net-plain-usocket))
+  (with-slots (socket) net
+    (close socket)))
+
+(defmethod net-socket-shutdown ((net net-plain-usocket))
+  (with-slots (listener) net
+    (if listener
+	(usocket:socket-close listener))))
+
+(defmethod net-write-vector ((net net-plain-usocket) bytes n)
+  (with-slots (socket) net
+    (write-sequence bytes socket)))
+
+(defmethod net-read-vector ((net net-plain-usocket) bytes n)
+  (with-slots (socket) net
+    (sleep 1)
+    (format t "Calling socket-receive~%")
+    (let ((bytes-read
+	   (loop
+	      while (listen socket)
+	      for i below n
+	      do (read-sequence bytes socket :start i :end (1+ i))
+	      finally (return i))))
+      bytes-read)))
+
+(defmethod net-finish-output ((net net-plain-usocket))
+  nil)
+
 (defparameter *dump-bytes* t)
 (defparameter *dump-bytes-stream* t)
-(defparameter *dump-bytes-hook* nil)  ; nil or 'vector-inspect make sense
+(defparameter *dump-bytes-hook* 'vector-inspect)  ; nil or 'vector-inspect make sense
 
 (defun send-bytes (net bytes)
   (when *dump-bytes*
@@ -321,9 +372,12 @@
 			    (setf response (buffer-simple "Hello HTTP 2.0! POST payload: " post-str)))
 			  (progn
 			    (format t "Received GET request~%")
-			    (if (string= (req-header ":path") "/")
-				(setf response (buffer-simple "Hello HTTP 2.0! GET request"))
-				(setf response (buffer-simple "You requested the path " (req-header ":path") " from me.")))))
+			    (let ((path (req-header ":path")))
+			      (unless path
+				(error "Path not defined in request"))
+			      (if (string= path "/")
+				  (setf response (buffer-simple "Hello HTTP 2.0! GET request"))
+				  (setf response (buffer-simple "You requested the path " path " from me."))))))
 		      
 		      (headers stream `((":status"        . "200")
 					("content-length" . ,(format nil "~D" (buffer-size response)))
@@ -334,4 +388,6 @@
 		      (data stream (buffer-slice! response 0 5) :end-stream nil)
 		      (data stream response))))))))
 
-    (receive-loop net conn)))
+    (format t "Entering receive loop~%")
+    (receive-loop net conn)
+    (format t "Leaving receive loop~%")))

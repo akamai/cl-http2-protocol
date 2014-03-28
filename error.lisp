@@ -1,7 +1,5 @@
 (in-package :http2)
 
-(declaim (optimize (debug 3) (safety 3) (speed 0) (space 0) (compilation-speed 0)))
-
 (defclass error-include () ())
 
 (define-condition http2-error (simple-error) ())
