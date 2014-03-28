@@ -195,7 +195,7 @@
 
 (defparameter *dump-bytes* t)
 (defparameter *dump-bytes-stream* t)
-(defparameter *dump-bytes-hook* 'vector-inspect)  ; nil or 'vector-inspect make sense
+(defparameter *dump-bytes-hook* nil)  ; nil or 'vector-inspect make sense
 
 (defun send-bytes (net bytes)
   (when *dump-bytes*

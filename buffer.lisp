@@ -209,7 +209,7 @@ Each of ITEMS may be another BUFFER, a vector of bytes, a string, or an integer 
 (defmethod buffer-getbyte ((buffer buffer) &optional (remove t))
   "Returns the first byte number in BUFFER. Modifies BUFFER to remove it if REMOVE is true."
   (prog1 (aref (buffer-data buffer) 0)
-    (when remove (vector-delete-at (buffer-data buffer) 1))))
+    (when remove (vector-delete-at (buffer-data buffer) 0))))
 
 (defalias buffer-readbyte buffer-getbyte)
 

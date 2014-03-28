@@ -253,7 +253,7 @@ entry of the header table is always associated to the index 0."
     (when (< i limit)
       (return-from @integer (pack "C" (list i))))
     
-    (let ((bytes (make-data-array 0)))
+    (let ((bytes (make-data-vector 0)))
       (when (not (zerop n))
 	(vector-push-extend limit bytes))
 
