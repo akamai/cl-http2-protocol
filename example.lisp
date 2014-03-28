@@ -47,7 +47,7 @@
 		  (stream-fd (socket-stream raw-socket))
 		  :key *server-key-file*
 		  :certificate *server-cert-file*
-		  :close-callback (lambda-ignore-args (socket-close raw-socket))
+		  :close-callback (lambda-ignore (socket-close raw-socket))
 		  :next-protos-spec *next-protos-spec*))
     (let ((npn (cl+ssl::get-next-proto-negotiated socket)))
       (unless (member npn *next-protos-spec* :test #'string=)

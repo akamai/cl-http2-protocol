@@ -50,8 +50,10 @@
 
 (defparameter *rbit*  #x7FFFFFFF)
 (defparameter *rbyte* #x0FFFFFFF)
-(defparameter *headerpack* "nCCN")
-(defparameter *uint32* "N")
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defparameter *headerpack* "nCCN")
+  (defparameter *uint32* "N"))
 
 (defclass framer () ())
 

@@ -8,11 +8,12 @@
 (defparameter *default-priority* (expt 2 30)
   "Default stream priority (lower values are higher priority)")
 
-(defparameter *connection-header-string*
-  (concatenate 'string "PRI * HTTP/2.0" #1='(#\Return #\Linefeed) #1# "SM" #1# #1#)
-  "Default connection \"fast-fail\" preamble string as defined by the spec")
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defparameter *connection-header-string*
+    (concatenate 'string "PRI * HTTP/2.0" #1='(#\Return #\Linefeed) #1# "SM" #1# #1#)
+    "Default connection \"fast-fail\" preamble string as defined by the spec")
 
-(defparameter *connection-header* (string-to-bytes *connection-header-string*))
+  (defparameter *connection-header* (string-to-bytes *connection-header-string*)))
 
 (defclass connection (flowbuffer-include emitter-include error-include)
   ((state :reader conn-state)
