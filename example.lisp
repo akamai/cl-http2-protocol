@@ -1,271 +1,36 @@
 (in-package :http2)
 
-(defparameter *server-key-file* "/home/ubuntu/ruby_example/keys/mykey.pem")
-(defparameter *server-cert-file* "/home/ubuntu/ruby_example/keys/mycert.pem")
-(defparameter *next-protos-spec* '("HTTP-draft-06/2.0"))
-
-; Port note: The networking diverges a little bit from the Ruby
-; examples at first, then DO-CLIENT and DO-SERVER are similar as
-; functions to what ruby_examples/client.rb, ruby_examples/server.rb
-; do as executables.
-
-; To abstract networking differences when we wrap in SSL versus when
-; we don't, a NET class is defined that can NET-SOCKET-LISTEN,
-; NET-SOCKET-ACCEPT, NET-SOCKET-PREPARE-SERVER, NET-SOCKET-CLOSE,
-; NET-SOCKET-SHUTDOWN, NET-WRITE-VECTOR, NET-READ-VECTOR, and
-; NET-FINISH-OUTPUT. There are two versions, one for SSL, NET-SSL, and
-; one for plain, NET-PLAIN. We normalize calls, housekeeping, and
-; differences in exceptions. Importantly, NET-READ-VECTOR must return
-; 0 for no bytes read (think EAGAIN), a number of bytes read from 1
-; up to the N provided depending on what was available, or NIL when
-; the peer has gracefully closed their end of the socket.
-;
-; Because eventually HTTP/2.0 will settle on whether TLS is required
-; and related issues, this is likely to be simplified in the future.
-
-(defclass net ()
-  ((listener :accessor net-listener :initform nil)
-   (raw-socket :accessor net-raw-socket :initform nil)
-   (socket :accessor net-socket :initform nil))
-  (:documentation "Abstraction for multiple network implementations"))
-
-(defclass net-ssl (net) ()
-  (:documentation "CL+SSL wrapping USOCKET"))
-
-(defmethod net-socket-listen ((net net-ssl) host port)
-  (with-slots (listener) net
-    (setf listener (socket-listen
-		    host port
-		    :reuse-address t
-		    :backlog 8
-		    :element-type '(unsigned-byte 8)))))
-
-(defmethod net-socket-accept ((net net-ssl))
-  (with-slots (raw-socket listener) net
-    (setf raw-socket (socket-accept listener))))
-
-(defmethod net-socket-prepare-server ((net net-ssl))
-  (with-slots (raw-socket socket) net
-    (setf socket (cl+ssl:make-ssl-server-stream
-		  (stream-fd (socket-stream raw-socket))
-		  :key *server-key-file*
-		  :certificate *server-cert-file*
-		  :close-callback (lambda-ignore (socket-close raw-socket))
-		  :next-protos-spec *next-protos-spec*))
-    (let ((npn (cl+ssl::get-next-proto-negotiated socket)))
-      (unless (member npn *next-protos-spec* :test #'string=)
-	(error 'http2-not-started :other-protocol npn
-	       :format-control "Protocol ~S negotiated instead of one of ~S."
-	       :format-arguments (list npn *next-protos-spec*))))))
-
-(defmethod net-socket-close ((net net-ssl))
-  (with-slots (raw-socket socket) net
-    (if socket
-	(handler-case
-	    (close socket)
-	  (t ()
-	    (if raw-socket
-		(socket-close raw-socket))))
-	(if raw-socket
-	    (socket-close raw-socket)))))
-
-(defmethod net-socket-shutdown ((net net-ssl))
-  (with-slots (listener) net
-    (if listener
-	(socket-close listener))))
-
-(defmethod net-write-vector ((net net-ssl) bytes n)
-  (with-slots (socket) net
-    (handler-case
-	(write-sequence bytes socket :end n)
-      (cl+ssl::ssl-error-syscall ()
-	(error 'connection-reset-error :stream socket)))))
-
-(defmethod net-read-vector ((net net-ssl) bytes n)
-  (with-slots (socket) net
-    (handler-case
-	(cl+ssl::stream-read-partial-sequence socket bytes 0 n)
-      (cl+ssl::ssl-error-syscall ()
-	(error 'connection-reset-error :stream socket)))))
-
-(defmethod net-finish-output ((net net-ssl))
-  (with-slots (socket) net
-    (handler-case
-	(finish-output socket)
-      (cl+ssl::ssl-error-syscall ()
-	(error 'connection-reset-error :stream socket)))))
-
-(defclass net-plain (net) ()
-  (:documentation "Regular socket using SB-BSD-SOCKETS"))
-
-#+sbcl
-(defmethod net-socket-listen ((net net-plain) host port)
-  (with-slots (listener) net
-    (let ((server (make-instance 'sb-bsd-sockets:inet-socket :type :stream :protocol :tcp)))
-      (setf (sb-bsd-sockets:sockopt-reuse-address server) t)
-      (sb-bsd-sockets:socket-bind server (usocket:dotted-quad-to-vector-quad host) port)
-      (sb-bsd-sockets:socket-listen server 8)
-      (setf listener server))))
-
-#+sbcl
-(defmethod net-socket-accept ((net net-plain))
-  (with-slots (raw-socket listener) net
-    (setf raw-socket (sb-bsd-sockets:socket-accept listener))))
-
-#+sbcl
-(defmethod net-socket-prepare-server ((net net-plain))
-  (with-slots (raw-socket socket) net
-    (setf socket raw-socket)))
-
-#+sbcl
-(defmethod net-socket-close ((net net-plain))
-  (with-slots (socket) net
-    (sb-bsd-sockets:socket-close socket)))
-
-#+sbcl
-(defmethod net-socket-shutdown ((net net-plain))
-  (with-slots (listener) net
-    (if listener
-	(sb-bsd-sockets:socket-close listener))))
-
-#+sbcl
-(defmethod net-write-vector ((net net-plain) bytes n)
-  (with-slots (socket) net
-    (sb-bsd-sockets:socket-send socket bytes n)))
-
-#+sbcl
-(defmethod net-read-vector ((net net-plain) bytes n)
-  (with-slots (socket) net
-    (unless (sb-bsd-sockets:socket-open-p socket)
-      (error 'end-of-file :stream socket))
-    (multiple-value-bind (buf bytes-read peer)
-	(sb-bsd-sockets:socket-receive socket bytes n)
-      (declare (ignore buf peer))
-      (cond ((null bytes-read) 0)
-	    ((zerop bytes-read) nil)
-	    (t bytes-read)))))
-
-#+sbcl
-(defmethod net-finish-output ((net net-plain))
-  nil)
-
-(defclass net-plain-usocket (net) ()
-  (:documentation "Regular socket using USOCKET"))
-
-(defmethod net-socket-listen ((net net-plain-usocket) host port)
-  (with-slots (listener) net
-    (let ((server (usocket:socket-listen host port :reuse-address t :backlog 8 :element-type '(unsigned-byte 8))))
-      (setf listener server))))
-
-(defmethod net-socket-accept ((net net-plain-usocket))
-  (with-slots (raw-socket listener) net
-    (setf raw-socket (usocket:socket-accept listener))))
-
-(defmethod net-socket-prepare-server ((net net-plain-usocket))
-  (with-slots (raw-socket socket) net
-    (setf socket (usocket:socket-stream raw-socket))))
-
-(defmethod net-socket-close ((net net-plain-usocket))
-  (with-slots (socket) net
-    (close socket)))
-
-(defmethod net-socket-shutdown ((net net-plain-usocket))
-  (with-slots (listener) net
-    (if listener
-	(usocket:socket-close listener))))
-
-(defmethod net-write-vector ((net net-plain-usocket) bytes n)
-  (with-slots (socket) net
-    (write-sequence bytes socket)))
-
-(defmethod net-read-vector ((net net-plain-usocket) bytes n)
-  (with-slots (socket) net
-    (sleep 1)
-    (format t "Calling socket-receive~%")
-    (let ((bytes-read
-	   (loop
-	      while (listen socket)
-	      for i below n
-	      do (read-sequence bytes socket :start i :end (1+ i))
-	      finally (return i))))
-      bytes-read)))
-
-(defmethod net-finish-output ((net net-plain-usocket))
-  nil)
-
-(defparameter *dump-bytes* t)
-(defparameter *dump-bytes-stream* t)
-(defparameter *dump-bytes-hook* nil)  ; nil or 'vector-inspect make sense
-
-(defun send-bytes (net bytes)
-  (when *dump-bytes*
-    (format *dump-bytes-stream* "http2 send: ~A~%"
-	    (if *dump-bytes-hook* (funcall *dump-bytes-hook* bytes) bytes)))
-  (net-write-vector net bytes (length bytes))
-  (net-finish-output net))
-
-(defun receive-bytes (net)
-  (let* ((bytes (make-array 1024 :element-type '(unsigned-byte 8) :fill-pointer 1024))
-	 (bytes-read (net-read-vector net bytes 1024)))
-    (unless bytes-read
-      (error 'end-of-file :stream (net-socket net)))
-    (when (plusp bytes-read)
-      (setf (fill-pointer bytes) bytes-read)
-      (when *dump-bytes*
-	(format *dump-bytes-stream* "http2 recv: ~A~%"
-		(if *dump-bytes-hook* (funcall *dump-bytes-hook* bytes) bytes)))
-      bytes)))
-
-(defun receive-loop (net conn)
-  (handler-case
-      (loop
-	 (when-let (bytes (receive-bytes net))
-	   (handler-case-unless *debug-mode*
-	       (connection<< conn bytes)
-	     (t (e)
-		(format t "~S~%" e)
-		(when (typep e 'simple-condition)
-		  (apply #'format t
-			 (concatenate 'string "(" (simple-condition-format-control e) ")~%")
-			 (simple-condition-format-arguments e)))
-		(net-socket-close net)))))
-    (end-of-file ()
-      nil)))
-
-(defun do-client (uri)
-  (unwind-protect
-       (handler-case
-	   (do-client-inner uri)
-	 (connection-refused-error ()
-	   (format t "Connection refused: ~A~%" uri)))
-    (finish-output)))
-
-(defun do-client-inner (uri)
+(defun example-client (uri &key (net nil net-arg-p) (secure nil secure-arg-p))
+  (assert (or (not net-arg-p) (not secure-arg-p)) (net secure) "Provide either :NET or :SECURE")
   (when (not (uri-p uri))
     (setf uri (parse-uri uri)))
+  (ensuref net (make-instance (if (or secure (eq (uri-scheme uri) :https))
+				  'net-ssl
+				  #+sbcl 'net-plain-sb-bsd-sockets
+				  #-sbcl 'net-plain-usocket)))
+  (assert (typep net 'net) (net) ":NET object must be of type NET")
+  (handler-case
+      (example-client-inner net uri)
+    (connection-refused-error ()
+      (format t "Connection refused: ~A~%" uri))))
+
+(defun example-client-inner (net uri)
   (format t "About to connect socket to ~A port ~A...~%"
 	  (uri-host uri) (or (uri-port uri) 443))
-  (let ((socket (socket-connect (uri-host uri) (or (uri-port uri) 443)
-				:protocol :stream
-				:element-type '(unsigned-byte 8)
-				:timeout 10))
-	ssl-socket
-	(conn (make-instance 'client)))
+  (net-socket-connect net (uri-host uri) (or (uri-port uri) (if (eq (uri-scheme uri) :https) 443 80)))
+  (format t "Connected!~%")
+  (unwind-protect
+       (progn
+	 (net-socket-prepare-client net)
+	 (example-client-connected-socket net uri))
+    (net-socket-close net)))
 
-    (format t "Connected to server ~S:~S via my local connection at ~S:~S!~%"
-            (get-peer-address socket) (get-peer-port socket)
-            (get-local-address socket) (get-local-port socket))
-
-    (format t "Making SSL socket...~%")
-    (setf ssl-socket (cl+ssl:make-ssl-client-stream
-		      (stream-fd (socket-stream socket))
-		      ))
-    (format t "Made SSL socket.~%")
-
+(defun example-client-connected-socket (net uri)
+  (let ((conn (make-instance 'client)))
     (on conn :frame
 	(lambda (bytes)
-	  (send-bytes ssl-socket (buffer-data bytes))))
-
+	  (send-bytes net (buffer-data bytes))))
+    
     (let ((stream (new-stream conn)))
 
       (on conn :promise
@@ -280,7 +45,7 @@
       (on stream :close
 	  (lambda ()
 	    (format t "stream closed~%")
-	    (error (make-condition 'end-of-file ssl-socket))))
+	    (error 'end-of-file :stream (net-socket net))))
 
       (on stream :half-close
 	  (lambda ()
@@ -302,29 +67,33 @@
 	(format t "Sending HTTP 2.0 request~%")
 	(headers stream head :end-stream t))
 
-      (receive-loop ssl-socket conn))))
+      (receive-loop net conn))))
 
-(defun do-server (&key net (interface "0.0.0.0") (port 8080) secure)
-  (unwind-protect
-       (handler-case
-	   (progn
-	     (format t "Starting server on port ~D~%" port)
-	     (ensuref net (make-instance (if secure 'net-ssl 'net-plain)))
-	     (net-socket-listen net interface port)
-	     (unwind-protect
-		  (loop (do-server-inner net))
-	       (net-socket-close net)
-	       (net-socket-shutdown net)))
-	 (address-in-use-error ()
-	   (format t "Address already in use.~%")))
-    (net-finish-output net)))
+(defun example-server (&key (interface "0.0.0.0") (port 8080)
+		       (net nil net-arg-p) (secure nil secure-arg-p))
+  (assert (or (not net-arg-p) (not secure-arg-p)) (net secure) "Provide either :NET or :SECURE")
+  (ensuref net (make-instance (if secure
+				  'net-ssl
+				  #+sbcl 'net-plain-sb-bsd-sockets
+				  #-sbcl 'net-plain-usocket)))
+  (assert (typep net 'net) (net) ":NET object must be of type NET")
+  (handler-case
+      (progn
+	(format t "Starting server on port ~D~%" port)
+	(net-socket-listen net interface port)
+	(unwind-protect
+	     (loop (example-server-inner net))
+	  (net-socket-close net)
+	  (net-socket-shutdown net)))
+    (address-in-use-error ()
+      (format t "Address already in use.~%"))))
 
-(defun do-server-inner (net)
+(defun example-server-inner (net)
   (net-socket-accept net)
   (format t "New TCP connection!~%")
   (net-socket-prepare-server net)
   (handler-case
-      (do-server-accepted-socket net)
+      (example-server-accepted-socket net)
     (connection-reset-error ()
       (format t "Connection reset.~%")
       (net-socket-close net))
@@ -332,7 +101,7 @@
       (format t "End of file.~%")
       (net-socket-close net))))
 
-(defun do-server-accepted-socket (net)
+(defun example-server-accepted-socket (net)
   (let ((conn (make-instance 'server)))
     (on conn :frame
 	(lambda (bytes)
@@ -372,12 +141,7 @@
 			    (setf response (buffer-simple "Hello HTTP 2.0! POST payload: " post-str)))
 			  (progn
 			    (format t "Received GET request~%")
-			    (let ((path (req-header ":path")))
-			      (unless path
-				(error "Path not defined in request"))
-			      (if (string= path "/")
-				  (setf response (buffer-simple "Hello HTTP 2.0! GET request"))
-				  (setf response (buffer-simple "You requested the path " path " from me."))))))
+			    (setf response (buffer-simple "Hello HTTP 2.0! GET request"))))
 		      
 		      (headers stream `((":status"        . "200")
 					("content-length" . ,(format nil "~D" (buffer-size response)))
