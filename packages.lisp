@@ -2,24 +2,46 @@
 
 (in-package :cl-user)
 
+(defpackage :cl-http2-protocol-util
+  (:nicknames :http2-util)
+  (:documentation "Package of language utils")
+  (:use :cl :alexandria :babel)
+  (:export #:defalias #:shift #:unshift #:while #:while-let
+	   #:ensuref #:deletef-if #:to-sym #:string-to-bytes
+	   #:flatten-n #:reverse-plist #:dohash
+	   #:+infinity #:-infinity
+	   #:lambda-ignore #:lambda-apply
+	   #:raise #:pack #:unpack #:*debug-mode*
+	   #:handler-case-unless))
+
 (defpackage :cl-http2-protocol
   (:nicknames :http2)
   (:documentation "HTTP/2.0 draft-06 implementation.")
-  (:use :cl :alexandria :babel)
+  (:use :cl :alexandria :babel :http2-util)
   (:shadow #:stream #:stream-error)
-  (:export #:client #:server
-	   #:on #:once #:emit
-	   #:headers #:data #:promise
-	   #:http2-error #:http2-not-started #:http2-handshake-error
+  (:export #:http2-error #:http2-not-started #:http2-handshake-error
 	   #:http2-protocol-error #:http2-compression-error
 	   #:http2-header-exception #:http2-flow-control-error
 	   #:http2-stream-error #:http2-stream-closed
 	   #:http2-connection-closed #:http2-stream-limit-exceeded
-	   #:*debug-mode*))
+	   #:buffer-empty-p #:buffer-adjust #:buffer<<
+	   #:buffer-simple #:buffer-prepend #:buffer-firstbyte
+	   #:buffer-firstchar #:buffer-getbyte #:buffer-readbyte
+	   #:buffer-setbyte #:buffer-size #:buffer-read
+	   #:buffer-delete-section #:buffer-slice #:buffer-slice!
+	   #:buffer-read-uint32 #:buffer-mismatch #:buffer-string
+	   #:buffer-ascii #:buffer-inspect
+	   #:connection<< #:new-stream
+	   #:client #:server
+	   #:on #:once #:emit
+	   #:stream<< #:send
+	   #:ping #:goaway #:settings
+	   #:headers #:data #:promise #:reprioritize
+	   #:stream-close #:cancel #:refuse))
 
 (defpackage :cl-http2-protocol-example
   (:nicknames :http2-example)
   (:documentation "HTTP/2.0 draft-06 simple example client/server.")
-  (:use :cl :alexandria :babel :puri :usocket :cl+ssl :http2)
+  (:use :cl :alexandria :babel :puri :usocket :cl+ssl :http2-util :http2)
   (:export #:example-client #:example-server
 	   #:*dump-bytes* #:*dump-bytes-stream* #:*dump-bytes-hook*))
