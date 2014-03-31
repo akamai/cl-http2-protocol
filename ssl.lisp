@@ -88,7 +88,7 @@
   (out (:pointer (:pointer :unsigned-char)))
   (outlen (:pointer :unsigned-char))
   (server (:pointer :unsigned-char))
-  (server-len (:pointer :unsigned-int))
+  (server-len :unsigned-int)
   (client (:pointer :unsigned-char))
   (client-len :unsigned-int))
 
@@ -123,13 +123,8 @@
      (out (:pointer (:pointer :unsigned-char))) (outlen (:pointer :unsigned-char))
      (in (:pointer :unsigned-char)) (inlen :unsigned-int) (arg :pointer))
   (declare (ignore s))
-  (cffi:with-foreign-slots ((data len) arg tlsextnextprotoctx)
-    (ssl-select-next-proto (cffi:mem-ref out :string)
-			   (cffi:mem-ref outlen :unsigned-char)
-			   (cffi:mem-ref in :unsigned-char)
-			   inlen
-			   data
-			   len))
+  (cffi:with-foreign-slots (((:pointer data) len) arg tlsextnextprotoctx)
+    (ssl-select-next-proto out outlen in inlen data len))
   +SSL_TLSEXT_ERR_OK+)
 
 ; add NPN support

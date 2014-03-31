@@ -1,6 +1,6 @@
 ; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
-(in-package :cl-http2-protocol)
+(in-package :cl-http2-protocol-util)
 
 (defmacro defalias (name existing)
   "Define NAME as a synonym for an EXISTING function or macro."
@@ -211,7 +211,7 @@ C - character"
 	     ,@(first sets)
 	     ,value)))))
 
-(defvar *debug-mode* t)
+(defvar *debug-mode* nil)
 
 (defmacro handler-case-unless (var expression &body clauses)
   "Expands into code that gives two paths, depending on the run-time value of a variable.
