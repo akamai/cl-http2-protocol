@@ -21,4 +21,5 @@
   (:nicknames :http2-example)
   (:documentation "HTTP/2.0 draft-06 simple example client/server.")
   (:use :cl :alexandria :babel :puri :usocket :cl+ssl :http2)
-  (:export #:example-client #:example-server))
+  (:export #:example-client #:example-server
+	   #:*dump-bytes* #:*dump-bytes-stream* #:*dump-bytes-hook*))
