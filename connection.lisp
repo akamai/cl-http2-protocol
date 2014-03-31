@@ -1,3 +1,5 @@
+; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+
 (in-package :cl-http2-protocol)
 
 (defparameter *default-flow-window* 65535

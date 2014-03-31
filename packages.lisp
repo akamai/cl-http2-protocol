@@ -1,3 +1,5 @@
+; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+
 (in-package :cl-user)
 
 (defpackage :cl-http2-protocol
@@ -17,6 +19,6 @@
 
 (defpackage :cl-http2-protocol-example
   (:nicknames :http2-example)
-  (:documentation "HTTP/2.0 simple example client/server.")
+  (:documentation "HTTP/2.0 draft-06 simple example client/server.")
   (:use :cl :alexandria :babel :puri :usocket :cl+ssl)
   (:export #:example-client #:example-server))

@@ -1,3 +1,5 @@
+; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+
 (in-package :cl-http2-protocol)
 
 ; A single HTTP 2.0 connection can multiplex multiple streams in parallel:

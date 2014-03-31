@@ -1,0 +1,21 @@
+TODO:
+-- ensure the file compiles on a clean image -BUG
+-- loop keywords are not consistent local/keyword -STYLE
+-- incomplete protection on array lengths -STABILITY
+-- array sizing and bounds checking is weak -STABILITY
+-- incomplete comment preservation from original ruby -STYLE
+-- note when initialize methods are rolled into CLOS defclass operation -STYLE
+-- make sure bytesize vs length is done OK -STABILITY
+-- use modules for namespacing as in the original, or rename some generics -STYLE
+-- @ sigil for avoiding shadowing/conflicts with CL -STYLE
+-- PUSH/SHIFT used as per Ruby but REVERSE/NREVERSE added -STYLE
+-- WHEN NOT models Ruby if ! but could become UNLESS -STYLE
+-- review DEFCLASS's for consistency -STYLE
+-- BUFFER-CONCAT-* might be rolled into a generic BUFFER-CONCAT -STYLE
+-- might be best to forego the #" reader -STYLE
+-- COPY-TREE on default tables might be able to be COPY-ALIST -SPEED
+-- not sure if BUFFER-INSPECT is exactly like Ruby .inspect -DEBUGABILITY
+-- document data structure choices in port from Ruby types -DOCUMENTATION
+-- should speed test against the Ruby -SPEED
+
+; (declaim (optimize (debug 3) (safety 3) (speed 0) (space 0) (compilation-speed 0)))

@@ -1,3 +1,5 @@
+; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+
 (in-package :cl-http2-protocol)
 
 ; Implementation of header compression for HTTP 2.0 (HPACK) format adapted

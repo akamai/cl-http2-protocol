@@ -1,3 +1,5 @@
+; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+
 ; We have to make some redefinitions in CL+SSL to get support for:
 ;
 ; (a) Reading a partial sequence, which we need for HTTP/2.0 binary frames.

@@ -1,3 +1,5 @@
+; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+
 (in-package :cl-http2-protocol-example)
 
 ; Port note: The networking diverges a little bit from the Ruby
