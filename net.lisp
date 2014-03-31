@@ -21,8 +21,8 @@
 ; Because eventually HTTP/2.0 will settle on whether TLS is required
 ; and related issues, this is likely to be simplified in the future.
 
-(defparameter *server-key-file* "mykey.pem")
-(defparameter *server-cert-file* "mycert.pem")
+(defparameter *server-key-file* "/home/ubuntu/cl-http2-protocol/mykey.pem")
+(defparameter *server-cert-file* "/home/ubuntu/cl-http2-protocol/mycert.pem")
 (defparameter *next-protos-spec* '("HTTP-draft-06/2.0"))
 
 (defparameter *dump-bytes* t)
