@@ -116,25 +116,31 @@ Server Setup
 To run this on a fresh Ubuntu Linux 13.10 server, follow these
 instructions. A non-root user of "ubuntu" with sudo access is assumed.
 
-# copy files to server under ~ubuntu/cl-http2-protocol
-
-sudo apt-get update
-sudo apt-get dist-upgrade
-sudo reboot
-sudo apt-get install sbcl
-wget http://beta.quicklisp.org/quicklisp.lisp
-sbcl --script <<EOF
-(load "quicklisp.lisp")
-(quicklisp-quickstart:install)
-(ql:quickload :swank)
-(ql:quickload :alexandria)
-(ql:quickload :babel)
-(ql:quickload :puri)
-(ql:quickload :usocket)
-(ql:quickload :cl+ssl)
-(load "cl-http2-protocol/cl-http2-protocol.asd")
-(do-server :secure t)
-EOF
+	sudo apt-get update && sudo apt-get dist-upgrade && sudo reboot
+	# if prompted about grub choose "install package maintainer's version"
+    
+    # copy files to server under ~ubuntu/cl-http2-protocol
+	# log in again
+	sudo apt-get install -y sbcl
+	wget http://beta.quicklisp.org/quicklisp.lisp
+	sbcl --script <<EOF
+	(load "quicklisp.lisp")
+	(quicklisp-quickstart:install)
+	(ql:quickload :swank)
+	(ql:quickload :alexandria)
+	(ql:quickload :babel)
+	(ql:quickload :puri)
+	(ql:quickload :usocket)
+	(ql:quickload :cl+ssl)
+	EOF
+	# and this one starts the server:
+	sbcl --script <<EOF
+	(load "quicklisp/setup.lisp")
+	(load "cl-http2-protocol/cl-http2-protocol.asd")
+	(require :cl-http2-protocol)
+	(in-package :http2)
+	(example-server :secure t)
+    EOF
 
 # you now have an HTTP/2.0 server listening on 0.0.0.0:8080
 

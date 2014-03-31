@@ -21,7 +21,7 @@ For other implementations, see: https://github.com/http2/http2-spec/wiki/Impleme
 	       :usocket
 	       :cl+ssl)
   :components ((:file "packages")
-	       (:file "util" :depends-on ("packages" :alexandria))
+	       (:file "util" :depends-on ("packages"))
 	       (:file "buffer" :depends-on ("util"))
 	       (:file "flow-buffer" :depends-on ("util" "buffer"))
 	       (:file "emitter" :depends-on ("util"))
@@ -32,6 +32,6 @@ For other implementations, see: https://github.com/http2/http2-spec/wiki/Impleme
 	       (:file "stream" :depends-on ("util" "flow-buffer" "emitter" "error" "buffer"))
 	       (:file "client" :depends-on ("util" "connection" "compressor" "stream"))
 	       (:file "server" :depends-on ("util" "connection" "compressor" "stream"))
-	       (:file "ssl" :depends-on ("util" :cl+ssl))
-	       (:file "net" :depends-on ("util" "ssl" :cl+ssl :usocket))
-	       (:file "example" :depends-on ("util" "ssl" "net" "client" "server" :puri))))
+	       (:file "ssl" :depends-on ("util"))
+	       (:file "net" :depends-on ("util" "ssl"))
+	       (:file "example" :depends-on ("util" "ssl" "net" "client" "server"))))

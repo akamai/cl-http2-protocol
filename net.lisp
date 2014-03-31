@@ -148,7 +148,7 @@
 					     :element-type '(unsigned-byte 8)
 					     :timeout 10))))
 
-(defmethod net-prepare-client ((net net-plain-socket))
+(defmethod net-prepare-client ((net net-plain-usocket))
   (with-slots (raw-socket socket) net
     (setf socket (usocket:socket-stream raw-socket))))
 
