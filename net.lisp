@@ -12,11 +12,13 @@
 ; NET-SOCKET-ACCEPT, NET-SOCKET-PREPARE-SERVER, NET-SOCKET-CLOSE,
 ; NET-SOCKET-SHUTDOWN, NET-WRITE-VECTOR, NET-READ-VECTOR, and
 ; NET-FINISH-OUTPUT. There are two versions, one for SSL, NET-SSL, and
-; one for plain, NET-PLAIN. We normalize calls, housekeeping, and
-; differences in exceptions. Importantly, NET-READ-VECTOR must return
-; 0 for no bytes read (think EAGAIN), a number of bytes read from 1
-; up to the N provided depending on what was available, or NIL when
-; the peer has gracefully closed their end of the socket.
+; one for plain, NET-PLAIN, although in practice you need to pick
+; NET-PLAIN-USOCKET or NET-PLAIN-SB-BSD-SOCKETS. We normalize calls,
+; housekeeping, and differences in exceptions. Importantly,
+; NET-READ-VECTOR must return 0 for no bytes read (think EAGAIN), a
+; number of bytes read from 1 up to the N provided depending on what
+; was available, or NIL when the peer has gracefully closed their end
+; of the socket. 
 ;
 ; Because eventually HTTP/2.0 will settle on whether TLS is required
 ; and related issues, this is likely to be simplified in the future.

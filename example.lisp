@@ -1,6 +1,6 @@
 ; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
-(in-package :cl-http2-protocol)
+(in-package :cl-http2-protocol-example)
 
 ; see also net.lisp which is part of the example and not strictly necessary
 

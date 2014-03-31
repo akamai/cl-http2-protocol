@@ -138,7 +138,7 @@ instructions. A non-root user of "ubuntu" with sudo access is assumed.
 	(load "quicklisp/setup.lisp")
 	(load "cl-http2-protocol/cl-http2-protocol.asd")
 	(require :cl-http2-protocol)
-	(in-package :http2)
+	(in-package :http2-example)
 	(example-server :secure t)
     EOF
 
