@@ -1,4 +1,11 @@
-(in-package :http2)
+(in-package :cl-http2-protocol)
+
+; HTTP 2.0 client connection class that implements appropriate header
+; compression / decompression algorithms and stream management logic.
+;
+; Your code is responsible for driving the client object, which in turn
+; performs all of the necessary HTTP 2.0 encoding / decoding, state
+; management, and the rest. See README.md for an example.
 
 (defclass client (connection)
   ((stream-id :initform 1)
@@ -10,6 +17,7 @@
   (:documentation "HTTP 2.0 client object"))
 
 (defmethod send :before ((client client) frame)
+  "Send an outgoing frame. Connection and stream flow control is managed by CONNECTION class."
   (with-slots (state stream-limit window-limit) client
     (when (eq state :connection-header)
       (emit client :frame *connection-header*)

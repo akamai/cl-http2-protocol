@@ -1,17 +1,27 @@
-(in-package :http2)
+(in-package :cl-http2-protocol)
 
-(defparameter *max-frame-size* (1- (expt 2 14)))
+(defparameter *max-frame-size* (1- (expt 2 14))
+  "Maximum size of a DATA payload (16383 bytes, ~16K).")
 
 (defclass flowbuffer-include ()
-  ((send-buffer :accessor send-buffer :initarg :send-buffer)))
+  ((send-buffer :accessor send-buffer :initarg :send-buffer))
+  (:documentation "Implementation of stream and connection DATA flow control: frames may
+be split and / or may be buffered based on current flow control window."))
 
 (defmethod buffered-amount ((obj flowbuffer-include))
+  "Amount of buffered data. Only DATA payloads are subject to flow stream
+and connection flow control."
   (reduce #'+ (mapcar (lambda (f) (getf f :length)) (send-buffer obj))))
 
 (defgeneric encode (obj frame))
 (defgeneric emit (obj obj &rest args))
 
 (defmethod send-data ((obj flowbuffer-include) &optional frame encode)
+  "Buffers outgoing DATA frames and applies flow control logic to split
+and emit DATA frames based on current flow control window. If the
+window is large enough, the data is sent immediately. Otherwise, the
+data is buffered until the flow control window is updated.
+Buffered DATA frames are emitted in FIFO order."
   (with-slots (send-buffer window) obj
     (when frame
       (push frame send-buffer))

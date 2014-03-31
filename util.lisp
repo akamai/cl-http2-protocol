@@ -1,6 +1,4 @@
-(in-package :http2)
-
-(declaim (optimize (debug 3) (safety 3) (speed 0) (space 0) (compilation-speed 0)))
+(in-package :cl-http2-protocol)
 
 (defmacro defalias (name existing)
   "Define NAME as a synonym for an EXISTING function or macro."
@@ -60,6 +58,10 @@
 			  (rec (car x) (rec (cdr x) acc n) (if n (1- n) nil))
 			  (cons x acc))))))
     (rec x nil n)))
+
+(defun reverse-plist (plist)
+  "Reverse PLIST non-destructively, e.g. (:X 1 :Y 2 :Z 3) becomes (:Z 3 :Y 2 :X 1)"
+  (loop with n for (k v) on plist by #'cddr do (push v n) do (push k n) finally (return n)))
 
 (defmacro dohash ((key-name value-name hash-table-name) &rest body)
   "Similar to DOLIST, but for hashes. Perform the BODY once for each key/value pair.

@@ -1,6 +1,7 @@
-(in-package :http2)
+(in-package :cl-http2-protocol)
 
-(defclass error-include () ())
+(defclass error-include () ()
+  (:documentation "Stream, connection, and compressor exceptions."))
 
 (define-condition http2-error (simple-error) ())
 
@@ -32,6 +33,8 @@ client and server contexts are out of sync."))
 (define-condition http2-stream-error (http2-protocol-error) ()
   (:documentation "Raised on invalid stream processing: invalid frame type received or
 sent, or invalid command issued."))
+
+; recoverable errors
 
 (define-condition http2-stream-closed (http2-error) ()
   (:documentation "Raised if stream has been closed and new frames cannot be sent."))

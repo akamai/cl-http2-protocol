@@ -1,10 +1,10 @@
-(in-package :http2)
+(in-package :cl-http2-protocol)
 
 ; Port notes: We cannot subclass STRING in CL to accomplish what we
 ; want. We have less utility methods out-of-the-box, so we'll define a
-; bunch of methods similar to the Ruby String ones.
-
-; We start with some vector primitives, and then define the buffer class
+; bunch of methods similar to the Ruby String ones. We start with some
+; vector primitives, and then define the BUFFER class, which will have
+; a slot carrying the actual binary data.
 
 (defun vector-concat (src dest)
   "Modifies vector DEST by concatenating the elements of vector SRC to the end, and returns DEST.

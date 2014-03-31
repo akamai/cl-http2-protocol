@@ -1,4 +1,6 @@
-(in-package :http2)
+(in-package :cl-http2-protocol)
+
+; see also net.lisp which is part of the example and not strictly necessary
 
 (defun example-client (uri &key (net nil net-arg-p) (secure nil secure-arg-p))
   (assert (or (not net-arg-p) (not secure-arg-p)) (net secure) "Provide either :NET or :SECURE")

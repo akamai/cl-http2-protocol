@@ -1,6 +1,4 @@
-(in-package :http2)
-
-(declaim (optimize (debug 3) (safety 3) (speed 0) (space 0) (compilation-speed 0)))
+(in-package :cl-http2-protocol)
 
 (defparameter *max-payload-size* (1- (expt 2 16))
   "Maximum frame size (65535 bytes)")
@@ -20,7 +18,8 @@
 			      :ping          #x6
 			      :goaway        #x7
 			      :window-update #x9
-			      :continuation  #xA))
+			      :continuation  #xA)
+  "HTTP 2.0 frame type mapping as defined by the spec")
 
 (defparameter *frame-flags* '(:data          (:end-stream 0 :reserved 1)
 			      :headers       (:end-stream 0 :reserved 1
@@ -32,11 +31,13 @@
 			      :ping          (:pong 0)
 			      :goaway        ()
 			      :window-update ()
-			      :continuation  (:end-stream 0 :end-headers 1)))
+			      :continuation  (:end-stream 0 :end-headers 1))
+  "Per frame flags as defined by the spec")
 
 (defparameter *defined-settings* '(:settings-max-concurrent-streams 4
 				   :settings-initial-window-size    7
-				   :settings-flow-control-options   10))
+				   :settings-flow-control-options   10)
+  "Default settings as defined by the spec")
 
 (defparameter *defined-errors* '(:no-error           0
 				 :protocol-error     1
@@ -46,7 +47,8 @@
 				 :frame-too-large    6
 				 :refused-stream     7
 				 :cancel             8
-				 :compression-error  9))
+				 :compression-error  9)
+  "Default error types as defined by the spec")
 
 (defparameter *rbit*  #x7FFFFFFF)
 (defparameter *rbyte* #x0FFFFFFF)
@@ -55,7 +57,8 @@
   (defparameter *headerpack* "nCCN")
   (defparameter *uint32* "N"))
 
-(defclass framer () ())
+(defclass framer () ()
+  (:documentation "Performs encoding, decoding, and validation of binary HTTP 2.0 frames."))
 
 (defmethod common-header ((framer framer) frame)
   "Generates common 8-byte frame header.
@@ -89,6 +92,7 @@
     (pack *headerpack* (nreverse header))))
 
 (defmethod read-common-header ((framer framer) (buf buffer))
+  "Decodes common 8-byte header."
   (let (frame)
     (destructuring-bind (flength type flags stream)
 	(unpack *headerpack* (buffer-data (buffer-slice buf 0 8)))

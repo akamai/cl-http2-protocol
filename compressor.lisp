@@ -1,4 +1,9 @@
-(in-package :http2)
+(in-package :cl-http2-protocol)
+
+; Implementation of header compression for HTTP 2.0 (HPACK) format adapted
+; to efficiently represent HTTP headers in the context of HTTP 2.0.
+;
+; - http://tools.ietf.org/html/draft-ietf-httpbis-header-compression
 
 (defparameter *req-defaults*
   '((":scheme"             . "http")
@@ -63,19 +68,27 @@
     ("retry-after"                 . "")
     ("strict-transport-security"   . "")
     ("transfer-encoding"           . "")
-    ("www-authenticate"            . "")))
+    ("www-authenticate"            . ""))
+  "Default response working set as defined by the spec.")
+
+; The set of components used to encode or decode a header set form an
+; encoding context: an encoding context contains a header table and a
+; reference set - there is one encoding context for each direction.
 
 (defclass encoding-context (error-include)
   ((type :initarg :type)
    (table :reader table)
    (limit :initarg :limit :initform 4096)
-   (refset :reader refset :initform (make-array 128 :element-type t :adjustable t :fill-pointer 0))))
+   (refset :reader refset :initform (make-array 128 :element-type t :adjustable t :fill-pointer 0)))
+  (:documentation "Encoding context: a header table and reference set for one direction"))
 
 (defmethod initialize-instance :after ((encoding-context encoding-context) &key)
+  "Initializes compression context with appropriate client/server
+defaults and maximum size of the header table."
   (with-slots (table type) encoding-context
     (setf table (if (eq type :request)
-		    (copy-tree *req-defaults*)
-		    (copy-tree *resp-defaults*)))))
+		    (copy-list *req-defaults*)
+		    (copy-list *resp-defaults*)))))
 
 (defmethod process ((encoding-context encoding-context) cmd)
   "Performs differential coding based on provided command type.
@@ -222,13 +235,16 @@ entry of the header table is always associated to the index 0."
   (with-slots (type) encoding-context
     (< idx (length (if (eq type :request) *req-defaults* *resp-defaults*)))))
 
-; Header representation as defined by the spec.
 (defparameter *headrep*
   '(:indexed      (:prefix 7 :pattern #x80)
     :noindex      (:prefix 5 :pattern #x60)
     :incremental  (:prefix 5 :pattern #x40)
-    :substitution (:prefix 6 :pattern #x00)))
+    :substitution (:prefix 6 :pattern #x00))
+  "Header representation as defined by the spec.")
 
+; Responsible for encoding header key-value pairs using HPACK algorithm.
+; Compressor must be initialized with appropriate starting context based
+; on local role: client or server.
 (defclass compressor ()
   ((cc-type :initarg :type)
    (cc)))

@@ -1,16 +1,65 @@
-(in-package :http2)
+(in-package :cl-http2-protocol)
 
-(declaim (optimize (debug 3) (safety 3) (speed 0) (space 0) (compilation-speed 0)))
+; A single HTTP 2.0 connection can multiplex multiple streams in parallel:
+; multiple requests and responses can be in flight simultaneously and stream
+; data can be interleaved and prioritized.
+;
+; This class encapsulates all of the state, transition, flow-control, and
+; error management as defined by the HTTP 2.0 specification. All you have
+; to do is subscribe to appropriate events (marked with ":" prefix in
+; diagram below) and provide your application logic to handle request
+; and response processing.
+;
+;                         +--------+
+;                    PP   |        |   PP
+;                ,--------|  idle  |--------.
+;               /         |        |         \
+;              v          +--------+          v
+;       +----------+          |           +----------+
+;       |          |          | H         |          |
+;   ,---|:reserved |          |           |:reserved |---.
+;   |   | (local)  |          v           | (remote) |   |
+;   |   +----------+      +--------+      +----------+   |
+;   |      | :active      |        |      :active |      |
+;   |      |      ,-------|:active |-------.      |      |
+;   |      | H   /   ES   |        |   ES   \   H |      |
+;   |      v    v         +--------+         v    v      |
+;   |   +-----------+          |          +-_---------+  |
+;   |   |:half_close|          |          |:half_close|  |
+;   |   |  (remote) |          |          |  (local)  |  |
+;   |   +-----------+          |          +-----------+  |
+;   |        |                 v                |        |
+;   |        |    ES/R    +--------+    ES/R    |        |
+;   |        `----------->|        |<-----------'        |
+;   | R                   | :close |                   R |
+;   `-------------------->|        |<--------------------'
+;                         +--------+
 
 (defclass stream (flowbuffer-include emitter-include error-include)
-  ((id :reader id :initarg :id)
-   (priority :reader priority :initarg :priority)
-   (window :reader window :initarg :window)
-   (parent :reader parent :initarg :parent :initform nil)
-   (state :reader state :initform :idle)
+  ((id :reader id :initarg :id :type integer
+       :documentation "Stream ID (odd for client initiated streams, even otherwise).")
+   (priority :reader priority :initarg :priority :type integer
+	     :documentation "Stream priority as set by initiator.")
+   (window :reader window :initarg :window :type (or integer float)
+	   :documentation "Size of current stream flow control window.")
+   (parent :reader parent :initarg :parent :initform nil :type (or nil stream)
+	   :documentation "Request parent stream of push stream.")
+   (state :reader state :initform :idle
+	  :type (member '(:idle :open :reserved-local :reserved-remote
+			  :half-closed-local :half-closed-remote
+			  :local-closed :remote-closed
+			  :local-rst :remote-rst
+			  :half-closing :closing :closed))
+	  :documentation "Stream state as defined by HTTP 2.0.")
    (error :initform nil)
-   (closed :reader closed :initform nil)
+   (closed :reader closed :initform nil
+	   :documentation "Reason why connection was closed.")
    (send-buffer :initform nil)))
+
+; Note that you should never have to call MAKE-INSTANCE directly. To
+; create a new client initiated stream, use (DEFMETHOD NEW-STREAM
+; (CONNECTION ...)). Similarly, CONNECTION will emit new stream
+; objects, when new stream frames are received.
 
 (defmethod initialize-instance :after ((stream stream) &key)
   (with-slots (window) stream
@@ -109,6 +158,35 @@ close the underlying connection."
 to performing any application processing."
   (send stream (list :type :rst-stream :error :refused-stream)))
 
+; HTTP 2.0 Stream States
+; - http://tools.ietf.org/html/draft-ietf-httpbis-http2-05#section-5
+;
+;                       +--------+
+;                 PP    |        |    PP
+;              ,--------|  idle  |--------.
+;             /         |        |         \
+;            v          +--------+          v
+;     +----------+          |           +----------+
+;     |          |          | H         |          |
+; ,---| reserved |          |           | reserved |---.
+; |   | (local)  |          v           | (remote) |   |
+; |   +----------+      +--------+      +----------+   |
+; |      |          ES  |        |  ES          |      |
+; |      | H    ,-------|  open  |-------.      | H    |
+; |      |     /        |        |        \     |      |
+; |      v    v         +--------+         v    v      |
+; |   +----------+          |           +----------+   |
+; |   |   half   |          |           |   half   |   |
+; |   |  closed  |          | R         |  closed  |   |
+; |   | (remote) |          |           | (local)  |   |
+; |   +----------+          |           +----------+   |
+; |        |                v                 |        |
+; |        |  ES / R    +--------+  ES / R    |        |
+; |        `----------->|        |<-----------'        |
+; |  R                  | closed |                  R  |
+; `-------------------->|        |<--------------------'
+;                       +--------+
+;
 (defmethod transition ((stream stream) frame sending)
   (with-slots (state closed) stream
     (case state
@@ -340,6 +418,4 @@ to performing any application processing."
     (when (not (eq state :closed))
       (stream-close stream type))
 
-    ; in the Ruby code introspection is used to raise an Error subclass
-    ; similarly we convert the keyword symbol to a defined condition
     (raise (find-symbol (symbol-name type)) msg)))

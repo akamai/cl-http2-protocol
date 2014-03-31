@@ -1,11 +1,11 @@
 (in-package :cl-user)
 
-(defpackage :cl-http2-asd
+(defpackage :cl-http2-protocol-asd
   (:use :cl :asdf))
 
-(in-package :cl-http2-asd)
+(in-package :cl-http2-protocol-asd)
 
-(defsystem :cl-http2
+(defsystem :cl-http2-protocol
   :description "HTTP/2.0 draft-06 implementation with client/server examples.
 Originally a port of Ruby code by Ilya Grigorik, see: https://github.com/igrigorik/http-2
 For HTTP/2.0 draft-06, see: http://tools.ietf.org/html/draft-ietf-httpbis-http2-06
@@ -19,7 +19,7 @@ For other implementations, see: https://github.com/http2/http2-spec/wiki/Impleme
 	       :usocket
 	       :cl+ssl)
   :components ((:file "packages")
-	       (:file "util" :depends-on ("packages" (:require :alexandria)))
+	       (:file "util" :depends-on ("packages" :alexandria))
 	       (:file "buffer" :depends-on ("util"))
 	       (:file "flow-buffer" :depends-on ("util" "buffer"))
 	       (:file "emitter" :depends-on ("util"))
@@ -28,7 +28,8 @@ For other implementations, see: https://github.com/http2/http2-spec/wiki/Impleme
 	       (:file "framer" :depends-on ("util" "buffer"))
 	       (:file "compressor" :depends-on ("util" "error" "buffer"))
 	       (:file "stream" :depends-on ("util" "flow-buffer" "emitter" "error" "buffer"))
-	       (:file "client" :depends-on ("util" "connection" "compressor" "stream" (:require :puri)))
+	       (:file "client" :depends-on ("util" "connection" "compressor" "stream"))
 	       (:file "server" :depends-on ("util" "connection" "compressor" "stream"))
-	       (:file "ssl" :depends-on ("util" (:require :cl+ssl)))
-	       (:file "example" :depends-on ("util" "ssl" "client" "server"))))
+	       (:file "ssl" :depends-on ("util" :cl+ssl))
+	       (:file "net" :depends-on ("util" "ssl" :cl+ssl :usocket))
+	       (:file "example" :depends-on ("util" "ssl" "net" "client" "server" :puri))))

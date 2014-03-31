@@ -1,3 +1,5 @@
+(in-package :cl-http2-protocol-example)
+
 ; Port note: The networking diverges a little bit from the Ruby
 ; examples at first, then DO-CLIENT and DO-SERVER are similar as
 ; functions to what ruby_examples/client.rb, ruby_examples/server.rb
@@ -17,14 +19,13 @@
 ; Because eventually HTTP/2.0 will settle on whether TLS is required
 ; and related issues, this is likely to be simplified in the future.
 
-(defparameter *server-key-file* "/home/ubuntu/ruby_example/keys/mykey.pem")
-(defparameter *server-cert-file* "/home/ubuntu/ruby_example/keys/mycert.pem")
+(defparameter *server-key-file* "mykey.pem")
+(defparameter *server-cert-file* "mycert.pem")
 (defparameter *next-protos-spec* '("HTTP-draft-06/2.0"))
 
 (defparameter *dump-bytes* t)
 (defparameter *dump-bytes-stream* t)
 (defparameter *dump-bytes-hook* nil)  ; nil or 'vector-inspect make sense
-
 
 (defclass net ()
   ((listener :accessor net-listener :initform nil)
@@ -119,8 +120,10 @@
 	(error 'connection-reset-error :stream socket)))))
 
 
+(defclass net-plain (net) ())
+
 ; this is not the most efficient implementation (see net-read-vector)
-(defclass net-plain-usocket (net) ()
+(defclass net-plain-usocket (net-plain) ()
   (:documentation "Regular socket using USOCKET"))
 
 (defmethod net-socket-listen ((net net-plain-usocket) host port)
@@ -182,10 +185,10 @@
 
 #+sbcl
 (progn
-  (defclass net-plain-sb-bsd-sockets (net) ()
+  (defclass net-plain-sb-bsd-sockets (net-plain) ()
     (:documentation "Regular socket using SB-BSD-SOCKETS"))
 
-  (defmethod net-socket-listen ((net net-plain) host port)
+  (defmethod net-socket-listen ((net net-plain-sb-bsd-sockets) host port)
     (with-slots (listener) net
       (let ((server (make-instance 'sb-bsd-sockets:inet-socket :type :stream :protocol :tcp)))
 	(setf (sb-bsd-sockets:sockopt-reuse-address server) t)
@@ -193,38 +196,38 @@
 	(sb-bsd-sockets:socket-listen server 8)
 	(setf listener server))))
 
-  (defmethod net-socket-accept ((net net-plain))
+  (defmethod net-socket-accept ((net net-plain-sb-bsd-sockets))
     (with-slots (raw-socket listener) net
       (setf raw-socket (sb-bsd-sockets:socket-accept listener))))
 
-  (defmethod net-socket-prepare-server ((net net-plain))
+  (defmethod net-socket-prepare-server ((net net-plain-sb-bsd-sockets))
     (with-slots (raw-socket socket) net
       (setf socket raw-socket)))
 
-  (defmethod net-socket-client ((net net-plain) host port)
+  (defmethod net-socket-client ((net net-plain-sb-bsd-sockets) host port)
     (with-slots (raw-socket) net
       (let ((client (make-instance 'sb-bsd-sockets:inet-socket :type :stream :protocol :tcp)))
 	(sb-bsd-sockets:socket-connect client host port)
 	(setf raw-socket client))))
 
-  (defmethod net-socket-prepare-client ((net net-plain))
+  (defmethod net-socket-prepare-client ((net net-plain-sb-bsd-sockets))
     (with-slots (raw-socket socket) net
       (setf socket raw-socket)))
 
-  (defmethod net-socket-close ((net net-plain))
+  (defmethod net-socket-close ((net net-plain-sb-bsd-sockets))
     (with-slots (socket) net
       (sb-bsd-sockets:socket-close socket)))
 
-  (defmethod net-socket-shutdown ((net net-plain))
+  (defmethod net-socket-shutdown ((net net-plain-sb-bsd-sockets))
     (with-slots (listener) net
       (if listener
 	  (sb-bsd-sockets:socket-close listener))))
 
-  (defmethod net-write-vector ((net net-plain) bytes n)
+  (defmethod net-write-vector ((net net-plain-sb-bsd-sockets) bytes n)
     (with-slots (socket) net
       (sb-bsd-sockets:socket-send socket bytes n)))
 
-  (defmethod net-read-vector ((net net-plain) bytes n)
+  (defmethod net-read-vector ((net net-plain-sb-bsd-sockets) bytes n)
     (with-slots (socket) net
       (unless (sb-bsd-sockets:socket-open-p socket)
 	(error 'end-of-file :stream socket))
@@ -235,7 +238,7 @@
 	      ((zerop bytes-read) nil)
 	      (t bytes-read)))))
 
-  (defmethod net-finish-output ((net net-plain))
+  (defmethod net-finish-output ((net net-plain-sb-bsd-sockets))
     nil))
 
 ; general functions

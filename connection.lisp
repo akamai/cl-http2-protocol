@@ -1,4 +1,4 @@
-(in-package :http2)
+(in-package :cl-http2-protocol)
 
 (defparameter *default-flow-window* 65535
   "Default connection and stream flow control window (64KB)")
@@ -11,19 +11,27 @@
     (buffer-simple (concatenate 'string "PRI * HTTP/2.0" #1='(#\Return #\Linefeed) #1# "SM" #1# #1#))
     "Default connection \"fast-fail\" preamble string as defined by the spec"))
 
+; Connection encapsulates all of the connection, stream, flow-control,
+; error management, and other processing logic required for a well-behaved
+; HTTP 2.0 endpoint.
+;
+; Note that this class should not be used directly. Instead, you want to
+; use either Client or Server class to drive the HTTP 2.0 exchange.
+;
 (defclass connection (flowbuffer-include emitter-include error-include)
-  ((state :reader conn-state)
+  ((state :reader conn-state :type (member :new :connection-header :connected :closed))
    (error :reader conn-error :initform nil)
-   (window :reader conn-window :initarg :window :initform *default-flow-window*)
-   (stream-limit :reader conn-stream-limit :initarg :streams :initform 100)
-   (active-stream-count :reader conn-active-stream-count :initform 0)
-   (streams :initform (make-hash-table))
-   (framer :initform (make-instance 'framer))
-   (window-limit :initarg :window-limit)
-   (recv-buffer :initform (make-instance 'buffer))
+   (window :reader conn-window :initarg :window :initform *default-flow-window* :type (or integer float))
+   (stream-limit :reader conn-stream-limit :initarg :streams :initform 100 :type integer)
+   (active-stream-count :reader conn-active-stream-count :initform 0 :type integer)
+   (streams :initform (make-hash-table) :type hash-table)
+   (framer :initform (make-instance 'framer) :type framer)
+   (window-limit :initarg :window-limit :type (or integer float))
+   (recv-buffer :initform (make-instance 'buffer) :type buffer)
    (send-buffer :initform nil)
-   (continuation :initform nil)
-   (stream-id :initform nil)))
+   (continuation :initform nil :type list)
+   (stream-id :initform nil))
+  (:documentation "Encapsulate connection, stream, flow-control, error management for an endpoint"))
 
 (defmethod initialize-instance :after ((connection connection) &key)
   (setf (slot-value connection 'window-limit) (slot-value connection 'window)))
@@ -31,6 +39,7 @@
 (defgeneric send (obj frame))
 
 (defmethod new-stream ((connection connection) &optional (priority *default-priority*) (parent nil))
+  "Allocates new stream for current connection."
   (with-slots (state active-stream-count stream-limit stream-id) connection
     (cond ((eq state :closed)                   (raise 'http2-connection-closed))
 	  ((= active-stream-count stream-limit) (raise 'http2-stream-limit-exceeded))
@@ -39,10 +48,18 @@
 	       (incf stream-id 2))))))
 
 (defmethod ping ((connection connection) payload blk)
+  "Sends PING frame to the peer."
   (send connection (list :type :ping :stream 0 :payload payload))
   (if blk (once connection :pong blk)))
 
+; Endpoints MAY append opaque data to the payload of any GOAWAY frame.
+; Additional debug data is intended for diagnostic purposes only and
+; carries no semantic value. Debug data MUST NOT be persistently stored,
+; since it could contain sensitive information.
+;
 (defmethod goaway ((connection connection) &optional (error :no-error) (payload nil))
+  "Sends a GOAWAY frame indicating that the peer should stop creating
+new streams for current connection."
   (with-slots (streams) connection
     (let ((last-stream (or (loop for k being the hash-keys of streams maximize k) 0)))
       (send connection (list :type :goaway :last-stream last-stream
@@ -51,19 +68,14 @@
 (defmethod settings ((connection connection) &optional
 		     (stream-limit (slot-value connection 'stream-limit))
 		     (window-limit (slot-value connection 'window-limit)))
+  "Sends a connection SETTINGS frame to the peer. Setting window size
+to +INFINITY disables flow control."
   (with-slots (window) connection
     (let ((payload (list :settings-max-concurrent-streams stream-limit)))
       (if (eql window +infinity)
-	  (appendf payload (list :settings-flow-control-options 1))
-	  (appendf payload (list :settings-initial-window-size window-limit))
-	  ; semantically the following pair makes a bit more sense but it
-	  ; results in the order of the settings (and thus the bytes)
-	  ; coming out in reverse order to the Ruby code which made testing
-	  ; for correctness more difficult
-	  ;   (setf (getf payload :settings-flow-control-options) 1)
-	  ;   (setf (getf payload :settings-initial-window-size) window-limit)
-	  )
-      (send connection (list :type :settings :stream 0 :payload payload)))))
+	  (setf (getf payload :settings-flow-control-options) 1)
+	  (setf (getf payload :settings-initial-window-size) window-limit))
+      (send connection (list :type :settings :stream 0 :payload (reverse-plist payload))))))
 
 ; these have to appear here to compile (receive connection ...) properly
 (defgeneric receive (obj data))
@@ -370,6 +382,4 @@ aborted, and once sent, raise a local exception."
 		       (simple-condition-format-control msg)
 		       (simple-condition-format-arguments msg))))
 
-    ; in the Ruby code introspection is used to raise an Error subclass
-    ; similarly we convert the keyword symbol to a defined condition
     (raise (find-symbol (symbol-name type)) msg)))

@@ -1,20 +1,38 @@
 ; We have to make some redefinitions in CL+SSL to get support for:
 ;
-; (a) reading a partial sequence, which we need for HTTP/2.0 binary frames.
+; (a) Reading a partial sequence, which we need for HTTP/2.0 binary frames.
+;     To follow the ported model, a function is used to read network bytes
+;     that is blocking for one byte and non-blocking for any remaining
+;     bytes that may be available at that time. This likely results in the
+;     fewest reads to the network system as multiple frames at once can be
+;     slurped in and added to the receive buffer.
 ;
 ;     Background reading:
 ;     https://groups.google.com/forum/#!topic/comp.lang.lisp/qYA6daIGCzk
 ;     http://www.nhplace.com/kent/CL/Issues/stream-definition-by-user.html
 ;
-;     Basically, while reading a variable number of octets from the network
-;     is something you can do in almost all modern CL implementations, the
-;     Gray Streams specification to which CL+SSL adheres was closer to the
-;     traditional CL specification which didn't conceive a way for that to
-;     happen. So wrapping a socket in CL+SSL takes you a step backwards in
-;     that regard. But OpenSSL supports it, so we just add wrapped support.
+;     Basically, while reading a variable number of octets from the
+;     network is something you can do in almost all modern CL
+;     implementations, the Gray Streams specification to which CL+SSL
+;     adheres was closer to the traditional CL STREAM specification
+;     which didn't conceive a way for that to happen. So wrapping a
+;     socket in CL+SSL takes you a step backwards in that regard. But
+;     OpenSSL supports it, so we just add wrapped support.
+;
+;     HTTP/2.0 does precede each frame with a payload size, so it would be
+;     possible to read that, and then read the remainder of the frame. A
+;     change could be made to read in 8 bytes, call CONNECTION<< and in
+;     (DEFMETHOD PARSE (FRAMER ...)) to return the number of
+;     further bytes needed for a frame to be complete instead of nil, which
+;     could bubble back to the implementation and could be used to call
+;     another read with the target length.
+;
+;     However those changes wouldn't help with the next issue:
 ;
 ; (b) Next Protocol Negotiation support, which we need for HTTP/2.0.
+;     HTTP/2.0 uses TLS, and annouces itself via NPN.
 ;     (we'll also need ALPN in the future)
+;
 
 (in-package :cl+ssl)
 
