@@ -270,7 +270,7 @@
   (handler-case
       (loop
 	 (when-let (bytes (receive-bytes net))
-	   (handler-case-unless *debug-mode*
+	   (handler-case-unless http2:*debug-mode*
 	       (connection<< conn bytes)
 	     (t (e)
 		(format t "~S~%" e)

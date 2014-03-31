@@ -15,10 +15,10 @@
 	   #:http2-header-exception #:http2-flow-control-error
 	   #:http2-stream-error #:http2-stream-closed
 	   #:http2-connection-closed #:http2-stream-limit-exceeded
-	   #:example-client #:example-server))
+	   #:*debug-mode*))
 
 (defpackage :cl-http2-protocol-example
   (:nicknames :http2-example)
   (:documentation "HTTP/2.0 draft-06 simple example client/server.")
-  (:use :cl :alexandria :babel :puri :usocket :cl+ssl)
+  (:use :cl :alexandria :babel :puri :usocket :cl+ssl :http2)
   (:export #:example-client #:example-server))
