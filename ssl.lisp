@@ -106,8 +106,9 @@
   (data :string)
   (len :unsigned-int))
 
-(cffi:defcallback lisp-next-proto-cb :int
-    ((s ssl-pointer) (data (:pointer :pointer)) (len (:pointer :unsigned-int)) (arg (:pointer tlsextnextprotoctx)))
+(cffi:defcallback lisp-server-next-proto-cb :int
+    ((s ssl-pointer) (data (:pointer :pointer)) (len (:pointer :unsigned-int))
+     (arg (:pointer tlsextnextprotoctx)))
   (declare (ignore s))
   (let (tmp-data tmp-len)
     (cffi:with-foreign-slots ((data len) arg tlsextnextprotoctx)
@@ -115,6 +116,20 @@
 	    tmp-len len))
     (setf (cffi:mem-ref data :string) tmp-data
 	  (cffi:mem-ref len :unsigned-int) tmp-len))
+  +SSL_TLSEXT_ERR_OK+)
+
+(cffi:defcallback lisp-client-next-proto-cb :int
+    ((s ssl-pointer)
+     (out (:pointer (:pointer :unsigned-char))) (outlen (:pointer :unsigned-char))
+     (in (:pointer :unsigned-char)) (inlen :unsigned-int) (arg :pointer))
+  (declare (ignore s))
+  (cffi:with-foreign-slots ((data len) arg tlsextnextprotoctx)
+    (ssl-select-next-proto (cffi:mem-ref out :string)
+			   (cffi:mem-ref outlen :unsigned-char)
+			   (cffi:mem-ref in :unsigned-char)
+			   inlen
+			   data
+			   len))
   +SSL_TLSEXT_ERR_OK+)
 
 ; add NPN support
@@ -139,9 +154,9 @@ may be associated with the passphrase PASSWORD."
       (cffi:with-foreign-object (arg 'tlsextnextprotoctx)
 	(setf (cffi:foreign-slot-value arg 'tlsextnextprotoctx 'data) nps)
 	(setf (cffi:foreign-slot-value arg 'tlsextnextprotoctx 'len) (length nps))
-	(ssl-ctx-set-next-protos-advertised-cb *ssl-global-context*
-					       (cffi:callback lisp-next-proto-cb)
-					       arg)
+	(ssl-ctx-set-next-proto-select-cb *ssl-global-context*
+					  (cffi:callback lisp-client-next-proto-cb)
+					  arg)
 	(ensure-ssl-funcall stream handle #'ssl-connect handle)))
 
     (when (ssl-check-verify-p)
@@ -186,7 +201,7 @@ may be associated with the passphrase PASSWORD."
 	(setf (cffi:foreign-slot-value arg 'tlsextnextprotoctx 'data) nps)
 	(setf (cffi:foreign-slot-value arg 'tlsextnextprotoctx 'len) (length nps))
 	(ssl-ctx-set-next-protos-advertised-cb *ssl-global-context*
-					       (cffi:callback lisp-next-proto-cb)
+					       (cffi:callback lisp-server-next-proto-cb)
 					       arg)
 	(ensure-ssl-funcall stream handle #'ssl-accept handle)))
     

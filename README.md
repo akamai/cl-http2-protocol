@@ -118,7 +118,7 @@ instructions. A non-root user of "ubuntu" with sudo access is assumed.
 
 	sudo apt-get update && sudo apt-get dist-upgrade && sudo reboot
 	# if prompted about grub choose "install package maintainer's version"
-    
+    #
     # copy files to server under ~ubuntu/cl-http2-protocol
 	# log in again
 	sudo apt-get install -y sbcl
@@ -126,6 +126,7 @@ instructions. A non-root user of "ubuntu" with sudo access is assumed.
 	sbcl --script <<EOF
 	(load "quicklisp.lisp")
 	(quicklisp-quickstart:install)
+	(ql:add-to-init-file)
 	(ql:quickload :swank)
 	(ql:quickload :alexandria)
 	(ql:quickload :babel)
@@ -135,14 +136,14 @@ instructions. A non-root user of "ubuntu" with sudo access is assumed.
 	EOF
 	# and this one starts the server:
 	sbcl --script <<EOF
-	(load "quicklisp/setup.lisp")
 	(load "cl-http2-protocol/cl-http2-protocol.asd")
 	(require :cl-http2-protocol)
 	(in-package :http2-example)
 	(example-server :secure t)
     EOF
-
-# you now have an HTTP/2.0 server listening on 0.0.0.0:8080
+	# now you have an HTTP/2.0 server on port 8080
+	# note, any exception will cause it to exit
+	# EXAMPLE-SERVER accepts a :port keyword as well
 
 Getting Started
 ---------------
