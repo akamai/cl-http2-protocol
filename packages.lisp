@@ -24,17 +24,24 @@
 	   #:http2-header-exception #:http2-flow-control-error
 	   #:http2-stream-error #:http2-stream-closed
 	   #:http2-connection-closed #:http2-stream-limit-exceeded
-	   #:buffer-empty-p #:buffer-adjust #:buffer<<
-	   #:buffer-simple #:buffer-prepend #:buffer-firstbyte
-	   #:buffer-firstchar #:buffer-getbyte #:buffer-readbyte
-	   #:buffer-setbyte #:buffer-size #:buffer-read
-	   #:buffer-delete-section #:buffer-slice #:buffer-slice!
-	   #:buffer-read-uint32 #:buffer-mismatch #:buffer-string
-	   #:buffer-ascii #:buffer-inspect
+	   #:vector-concat #:vector-prepend #:vector-splice
+	   #:vector-delete #:vector-delete-at #:vector-slice
+	   #:vector-inspect #:make-data-vector
+	   #:buffer #:buffer-data #:buffer-empty-p #:buffer-adjust
+	   #:buffer<< #:buffer-simple #:buffer-prepend
+	   #:buffer-firstbyte #:buffer-firstchar #:buffer-getbyte
+	   #:buffer-readbyte #:buffer-setbyte #:buffer-size
+	   #:buffer-read #:buffer-delete-section #:buffer-slice
+	   #:buffer-slice! #:buffer-read-uint32 #:buffer-mismatch
+	   #:buffer-string #:buffer-ascii #:buffer-inspect
+	   #:connection #:conn-state #:conn-error #:conn-window
+	   #:conn-stream-limit #:conn-active-stream-count
 	   #:connection<< #:new-stream
 	   #:client #:server
 	   #:on #:once #:emit
-	   #:stream<< #:send
+	   #:stream-id #:stream-priority #:stream-window
+	   #:stream-parent #:stream-state #:stream-closed
+	   #:stream-error-type #:stream<<
 	   #:ping #:goaway #:settings
 	   #:headers #:data #:promise #:reprioritize
 	   #:stream-close #:cancel #:refuse))

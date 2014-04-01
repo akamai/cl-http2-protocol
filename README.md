@@ -86,10 +86,9 @@ port. For the most part, the major differences are:
   efficient manner due to reading variable-sized binary sequences,
   SB-BSD-SOCKETS on SBCL which is more efficient).
 
-* The code in the ruby_examples folder is contained in example.lisp in
-  the form of functions, and again there is quite a bit more prologue
-  in this file in the form of networking code abstractions.
-
+* The code in the example folder is contained in example.lisp in
+  the form of functions.
+  
 * The Ruby code uses arrays and hashes which in the CL code are
   variously ported as alists, plists, and hashes depending on the
   specifics of access required.
@@ -99,8 +98,8 @@ port. For the most part, the major differences are:
   it is very convenient in debugging (when NPN fails, etc).
 
 * Classes are matched one-to-one but module/package organization is
-  not necessarily the same. Things end up in the CL-HTTP2-PROTOCOL
-  package (nickname HTTP2).
+  different. Use the HTTP2 package for most functions and the
+  HTTP2-EXAMPLE package for the examples.
 
 This Common Lisp code was produced by Martin Flack, a Principal
 Architect on the Foundry team in the Web Experience business at
@@ -126,7 +125,6 @@ instructions. A non-root user of "ubuntu" with sudo access is assumed.
 	sbcl --script <<EOF
 	(load "quicklisp.lisp")
 	(quicklisp-quickstart:install)
-	(ql:add-to-init-file)
 	(ql:quickload :swank)
 	(ql:quickload :alexandria)
 	(ql:quickload :babel)
@@ -136,6 +134,7 @@ instructions. A non-root user of "ubuntu" with sudo access is assumed.
 	EOF
 	# and this one starts the server:
 	sbcl --script <<EOF
+	(load "quicklisp/setup.lisp")
 	(load "cl-http2-protocol/cl-http2-protocol.asd")
 	(require :cl-http2-protocol)
 	(in-package :http2-example)

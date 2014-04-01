@@ -38,23 +38,23 @@
 ;                         +--------+
 
 (defclass stream (flowbuffer-include emitter-include error-include)
-  ((id :reader id :initarg :id :type integer
+  ((id :reader stream-id :initarg :id :type integer
        :documentation "Stream ID (odd for client initiated streams, even otherwise).")
-   (priority :reader priority :initarg :priority :type integer
+   (priority :reader stream-priority :initarg :priority :type integer
 	     :documentation "Stream priority as set by initiator.")
-   (window :reader window :initarg :window :type (or integer float)
+   (window :reader stream-window :initarg :window :type (or integer float)
 	   :documentation "Size of current stream flow control window.")
-   (parent :reader parent :initarg :parent :initform nil :type (or nil stream)
+   (parent :reader stream-parent :initarg :parent :initform nil :type (or nil stream)
 	   :documentation "Request parent stream of push stream.")
-   (state :reader state :initform :idle
+   (state :reader stream-state :initform :idle
 	  :type (member '(:idle :open :reserved-local :reserved-remote
 			  :half-closed-local :half-closed-remote
 			  :local-closed :remote-closed
 			  :local-rst :remote-rst
 			  :half-closing :closing :closed))
 	  :documentation "Stream state as defined by HTTP 2.0.")
-   (error :initform nil)
-   (closed :reader closed :initform nil
+   (error :reader stream-error-type :initform nil)
+   (closed :reader stream-closed :initform nil
 	   :documentation "Reason why connection was closed.")
    (send-buffer :initform nil)))
 
@@ -416,7 +416,7 @@ to performing any application processing."
 
 (defmethod stream-error ((stream stream) &key (type :http-stream-error) (msg "Stream error"))
   (with-slots (error state) stream
-    (setf stream type)
+    (setf error type)
     (when (not (eq state :closed))
       (stream-close stream type))
 

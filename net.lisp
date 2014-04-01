@@ -23,8 +23,11 @@
 ; Because eventually HTTP/2.0 will settle on whether TLS is required
 ; and related issues, this is likely to be simplified in the future.
 
-(defparameter *server-key-file* "/home/ubuntu/cl-http2-protocol/mykey.pem")
-(defparameter *server-cert-file* "/home/ubuntu/cl-http2-protocol/mycert.pem")
+; change these paths to whatever they need to be:
+(defparameter *key-pathname* (merge-pathnames "cl-http2-protocol/" (user-homedir-pathname)))
+(defparameter *server-key-file* (merge-pathnames "mykey.pem" *key-pathname*))
+(defparameter *server-cert-file* (merge-pathnames "mycert.pem" *key-pathname*))
+
 (defparameter *next-protos-spec* '("HTTP-draft-06/2.0"))
 
 (defparameter *dump-bytes* t)
@@ -57,8 +60,8 @@
   (with-slots (raw-socket socket) net
     (setf socket (cl+ssl:make-ssl-server-stream
 		  (stream-fd (socket-stream raw-socket))
-		  :key *server-key-file*
-		  :certificate *server-cert-file*
+		  :key (namestring *server-key-file*)
+		  :certificate (namestring *server-cert-file*)
 		  :close-callback (lambda-ignore (socket-close raw-socket))
 		  :next-protos-spec *next-protos-spec*))
     (let ((npn (cl+ssl::get-next-proto-negotiated socket)))

@@ -92,26 +92,30 @@
   (client (:pointer :unsigned-char))
   (client-len :unsigned-int))
 
-(cffi:defcfun ("next_protos_parse" next-protos-parse)
-    :string
-  (outlen (:pointer :unsigned-short))
-  (in :string))
-
 (defconstant +OPENSSL_NPN_UNSUPPORTED+ 0)
 (defconstant +OPENSSL_NPN_NEGOTIATED+ 1)
 (defconstant +OPENSSL_NPN_NO_OVERLAP+ 2)
 (defconstant +SSL_TLSEXT_ERR_OK+ 0)
 
-(cffi:defcstruct tlsextnextprotoctx
+(defconstant +OPENSSL_NPN_UNSUPPORTED+ 0)
+(defconstant +OPENSSL_NPN_NEGOTIATED+ 1)
+(defconstant +OPENSSL_NPN_NO_OVERLAP+ 2)
+
+(cffi:defcstruct server-tlsextnextprotoctx
   (data :string)
   (len :unsigned-int))
 
+(cffi:defcstruct client-tlsextnextprotoctx
+  (data :string)
+  (len :unsigned-short)
+  (status :int))
+
 (cffi:defcallback lisp-server-next-proto-cb :int
     ((s ssl-pointer) (data (:pointer :pointer)) (len (:pointer :unsigned-int))
-     (arg (:pointer tlsextnextprotoctx)))
+     (arg (:pointer server-tlsextnextprotoctx)))
   (declare (ignore s))
   (let (tmp-data tmp-len)
-    (cffi:with-foreign-slots ((data len) arg tlsextnextprotoctx)
+    (cffi:with-foreign-slots ((data len) arg server-tlsextnextprotoctx)
       (setf tmp-data data
 	    tmp-len len))
     (setf (cffi:mem-ref data :string) tmp-data
@@ -123,9 +127,18 @@
      (out (:pointer (:pointer :unsigned-char))) (outlen (:pointer :unsigned-char))
      (in (:pointer :unsigned-char)) (inlen :unsigned-int) (arg :pointer))
   (declare (ignore s))
-  (cffi:with-foreign-slots (((:pointer data) len) arg tlsextnextprotoctx)
-    (ssl-select-next-proto out outlen in inlen data len))
+  (cffi:with-foreign-slots ((data len status) arg (:struct client-tlsextnextprotoctx))
+    (cffi:with-foreign-string (data* data)
+      (setf status (ssl-select-next-proto out outlen in inlen data* len))))
   +SSL_TLSEXT_ERR_OK+)
+
+(defun pack-next-protos-spec (next-protos-spec)
+  "Convert a list of NPN protocol names into a single concatenated string of length-prefixed names."
+  (with-output-to-string (s)
+    (dolist (p next-protos-spec)
+      (assert (and (stringp p) (plusp (length p)) p "Entry in NPN list must be a string with 1+ characters."))
+      (princ (code-char (length p)) s)
+      (princ p s))))
 
 ; add NPN support
 (defun make-ssl-client-stream
@@ -146,25 +159,19 @@ may be associated with the passphrase PASSWORD."
       (install-key-and-cert handle key certificate))
 
     (let ((nps (pack-next-protos-spec next-protos-spec)))
-      (cffi:with-foreign-object (arg 'tlsextnextprotoctx)
-	(setf (cffi:foreign-slot-value arg 'tlsextnextprotoctx 'data) nps)
-	(setf (cffi:foreign-slot-value arg 'tlsextnextprotoctx 'len) (length nps))
-	(ssl-ctx-set-next-proto-select-cb *ssl-global-context*
-					  (cffi:callback lisp-client-next-proto-cb)
-					  arg)
-	(ensure-ssl-funcall stream handle #'ssl-connect handle)))
+      (cffi:with-foreign-object (arg '(:struct client-tlsextnextprotoctx))
+	(cffi:with-foreign-slots ((data len) arg (:struct client-tlsextnextprotoctx))
+	  (cffi:with-foreign-string (nps* nps)
+	    (setf data nps*
+		  len (length nps))
+	    (ssl-ctx-set-next-proto-select-cb *ssl-global-context*
+					      (cffi:callback lisp-client-next-proto-cb)
+					      arg)
+	    (ensure-ssl-funcall stream handle #'ssl-connect handle)))))
 
     (when (ssl-check-verify-p)
       (ssl-stream-check-verify stream))
     (handle-external-format stream external-format)))
-
-(defun pack-next-protos-spec (next-protos-spec)
-  "Convert a list of NPN protocol names into a single concatenated string of length-prefixed names."
-  (with-output-to-string (s)
-    (dolist (p next-protos-spec)
-      (assert (and (stringp p) (plusp (length p)) p "Entry in NPN list must be a string with 1+ characters."))
-      (princ (code-char (length p)) s)
-      (princ p s))))
 
 ; add NPN support
 (defun make-ssl-server-stream
@@ -192,13 +199,15 @@ may be associated with the passphrase PASSWORD."
       (install-key-and-cert handle key certificate))
 
     (let ((nps (pack-next-protos-spec next-protos-spec)))
-      (cffi:with-foreign-object (arg 'tlsextnextprotoctx)
-	(setf (cffi:foreign-slot-value arg 'tlsextnextprotoctx 'data) nps)
-	(setf (cffi:foreign-slot-value arg 'tlsextnextprotoctx 'len) (length nps))
-	(ssl-ctx-set-next-protos-advertised-cb *ssl-global-context*
-					       (cffi:callback lisp-server-next-proto-cb)
-					       arg)
-	(ensure-ssl-funcall stream handle #'ssl-accept handle)))
+      (cffi:with-foreign-object (arg '(:struct server-tlsextnextprotoctx))
+	(cffi:with-foreign-slots ((data len) arg (:struct server-tlsextnextprotoctx))
+	  (cffi:with-foreign-string (nps* nps)
+	    (setf data nps*
+		  len (length nps))
+	    (ssl-ctx-set-next-protos-advertised-cb *ssl-global-context*
+						   (cffi:callback lisp-server-next-proto-cb)
+						   arg)
+	    (ensure-ssl-funcall stream handle #'ssl-accept handle)))))
     
     (handle-external-format stream external-format)))
 

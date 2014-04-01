@@ -311,7 +311,7 @@ frame addressed to stream ID = 0."
 	   (flow-control-allowed-p connection)
 	   (setf window (+ (- window window-limit) v))
 	   (dohash (id stream streams)
-	     (emit stream :window (+ (- (window stream) window-limit) v)))
+	     (emit stream :window (+ (- (stream-window stream) window-limit) v)))
 	   (setf window-limit v))
 
 	  (:settings-flow-control-options

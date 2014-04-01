@@ -211,7 +211,7 @@ C - character"
 	     ,@(first sets)
 	     ,value)))))
 
-(defvar *debug-mode* nil)
+(defvar *debug-mode* t)
 
 (defmacro handler-case-unless (var expression &body clauses)
   "Expands into code that gives two paths, depending on the run-time value of a variable.
