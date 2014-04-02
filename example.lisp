@@ -47,8 +47,8 @@
 		  (format t "promise data chunk: ~D~%" (length d))))))
       
       (on stream :close
-	  (lambda ()
-	    (format t "stream closed~%")
+	  (lambda (e)
+	    (format t "stream closed (error, if any: ~A)~%" e)
 	    (error 'end-of-file :stream (net-socket net))))
 
       (on stream :half-close
@@ -120,8 +120,8 @@
 		(lambda ()
 		  (format t "client opened new stream~%")))
 	    (on stream :close
-		(lambda ()
-		  (format t "stream closed~%")))
+		(lambda (e)
+		  (format t "stream closed (error, if any: ~A)~%" e)))
 	      
 	    (on stream :headers
 		(lambda (h)

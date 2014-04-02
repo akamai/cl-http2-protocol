@@ -44,14 +44,14 @@
 	     :documentation "Stream priority as set by initiator.")
    (window :reader stream-window :initarg :window :type (or integer float)
 	   :documentation "Size of current stream flow control window.")
-   (parent :reader stream-parent :initarg :parent :initform nil :type (or nil stream)
+   (parent :reader stream-parent :initarg :parent :initform nil :type (or null stream)
 	   :documentation "Request parent stream of push stream.")
    (state :reader stream-state :initform :idle
-	  :type (member '(:idle :open :reserved-local :reserved-remote
-			  :half-closed-local :half-closed-remote
-			  :local-closed :remote-closed
-			  :local-rst :remote-rst
-			  :half-closing :closing :closed))
+	  :type (member :idle :open :reserved-local :reserved-remote
+			:half-closed-local :half-closed-remote
+			:local-closed :remote-closed
+			:local-rst :remote-rst
+			:half-closing :closing :closed)
 	  :documentation "Stream state as defined by HTTP 2.0.")
    (error :reader stream-error-type :initform nil)
    (closed :reader stream-closed :initform nil
@@ -76,7 +76,7 @@
       (:data
        (when (not (getf frame :ignore))
 	 (emit stream :data frame)))
-      ((or :headers :push-promise)
+      ((:headers :push-promise)
        (if (listp (getf frame :payload))
 	   (when (not (getf frame :ignore))
 	     (emit stream :headers (plist-alist (flatten (getf frame :payload)))))
@@ -376,7 +376,7 @@ to performing any application processing."
 	     ((:remote-rst :remote-closed)
 	      (when (not (eq (getf frame :type) :rst-stream))
 		(stream-error stream :type :stream-closed)))
-	     ((or :local-rst :local-closed)
+	     ((:local-rst :local-closed)
 	      (setf (getf frame :ignore) t))))))))
 
 (defmethod event ((stream stream) newstate)
@@ -393,9 +393,9 @@ to performing any application processing."
        (unless (eq state :open)
 	 (emit stream :active))
        (setf state :half-closing))
-      (((or :local-closed :remote-closed :local-rst :remote-rst)
-	(setf closed newstate)
-	(setf state :closing))))
+      ((:local-closed :remote-closed :local-rst :remote-rst)
+       (setf closed newstate)
+       (setf state :closing)))
     state))
 
 (defmethod complete-transition ((stream stream) frame)
