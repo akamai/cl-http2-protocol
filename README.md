@@ -111,6 +111,10 @@ experience. Note that this code is intended to be used against the
 other HTTP/2.0 interopability client/server code linked above, and not
 necessarily any part of the Akamai network.
 
+This system was named `CL-HTTP2-PROTOCOL` to avoid misunderstanding
+that it was related to `CL-HTTP`, a Common Lisp web server.
+Apologies for the redundant word, but it matches common parlance.
+
 Server Setup and Example
 ------------
 
