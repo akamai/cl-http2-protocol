@@ -15,6 +15,12 @@ be split and / or may be buffered based on current flow control window."))
 and connection flow control."
   (reduce #'+ (mapcar (lambda (f) (getf f :length)) (send-buffer obj))))
 
+(defmethod window-update ((obj flowbuffer-include) increment)
+  "Increment window"
+  (with-slots (window) obj
+    (incf window increment)
+    (emit obj :window-update increment)))
+
 (defgeneric encode (obj frame))
 (defgeneric emit (obj obj &rest args))
 
