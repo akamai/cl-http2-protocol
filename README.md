@@ -115,7 +115,7 @@ Server Setup
 To run this on a fresh Ubuntu Linux 13.10 server, follow these
 instructions. A non-root user of "ubuntu" with sudo access is assumed.
 
-	sudo apt-get update && sudo apt-get dist-upgrade && sudo reboot
+	sudo apt-get update && sudo apt-get dist-upgrade -y && sudo reboot
 	# if prompted about grub choose "install package maintainer's version"
     #
     # copy files to server under ~ubuntu/cl-http2-protocol
@@ -143,6 +143,16 @@ instructions. A non-root user of "ubuntu" with sudo access is assumed.
 	# now you have an HTTP/2.0 server on port 8080
 	# note, any exception will cause it to exit
 	# EXAMPLE-SERVER accepts a :port keyword as well
+	#
+	# this will run a client (you can use screen to do both):
+	sbcl --script <<EOF
+	(load "quicklisp/setup.lisp")
+	(load "cl-http2-protocol/cl-http2-protocol.asd")
+	(require :cl-http2-protocol)
+	(in-package :http2-example)
+	(example-client "https://localhost:8080/")
+    EOF
+	
 
 Getting Started
 ---------------
