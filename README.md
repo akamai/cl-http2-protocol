@@ -15,9 +15,10 @@ implementations, subject to some editing in util.lisp.
 The code offers a pure Common Lisp transport agnostic implementation
 of the HTTP 2.0 protocol at draft-06. An example client and server are
 included for a "Hello, World" style test, which employ TLS using
-CL+SSL and OpenSSL. On SBCL, an option is available for unencrypted
-(a.k.a. "plain" or "direct") communication using SB-BSD-SOCKETS, but
-this is offered as a convenience only, as HTTP/2.0 will enforce TLS.
+`CL+SSL` and OpenSSL. For unencrypted communication (a.k.a. plain or
+direct), code using `USOCKET` is included (on SBCL, another option is
+available using `SB-BSD-SOCKETS`), but this is offered as a
+convenience only, as HTTP/2.0 will enforce TLS.
 
 Support for:
 
@@ -73,13 +74,14 @@ port. For the most part, the major differences are:
   capabilities similar to calls in Ruby as well as convenience calls.
 
 * buffer.lisp is much longer than buffer.rb in order to allow us to
-  build up various primitives that Ruby offers in the String class for
-  free.
+  build up various primitives that Ruby offers in the `String` class
+  for free.
 
-* ssl.lisp redefines some items in the CL+SSL package in order to
-  allow SSL communication for a variable-length frame binary protocol,
-  as well as adding support for wrapping NPN support from OpenSSL. See
-  comments in that file for more information.
+* ssl.lisp redefines some items in the `CL+SSL` package (based on the
+  `cl+ssl-20140316-git` version) in order to allow SSL communication
+  for a variable-length frame binary protocol, as well as adding
+  support for wrapping NPN support from OpenSSL. See comments in that
+  file for more information.
 
 * net.lisp provides a `NET` class that abstracts networking
   sufficiently to allow various approaches (`CL+SSL`, `USOCKET` albeit
@@ -115,58 +117,61 @@ Server Setup and Example
 To run this on a fresh Ubuntu Linux 13.10 server, follow these
 instructions. A non-root user of "ubuntu" with sudo access is assumed.
 
-	sudo apt-get update && sudo apt-get dist-upgrade -y && sudo reboot
-	# if prompted about grub choose "install package maintainer's version"
-    #
-    # copy files to server under ~ubuntu/cl-http2-protocol
-	# log in again
-	sudo apt-get install -y sbcl
-	wget http://beta.quicklisp.org/quicklisp.lisp
-	sbcl --script <<EOF
-	(load "quicklisp.lisp")
-	(quicklisp-quickstart:install)
-	(ql:quickload :swank)
-	(ql:quickload :alexandria)
-	(ql:quickload :babel)
-	(ql:quickload :puri)
-	(ql:quickload :usocket)
-	(ql:quickload :cl+ssl)
-	EOF
-	# and this one starts the server:
-	sbcl --script <<EOF
-	(load "quicklisp/setup.lisp")
-	(load "cl-http2-protocol/cl-http2-protocol.asd")
-	(require :cl-http2-protocol)
-	(in-package :http2-example)
-	(example-server :secure t)
-    EOF
-	# now you have an HTTP/2.0 server on port 8080
-	# note, any exception will cause it to exit
-	# EXAMPLE-SERVER accepts a :port keyword as well
-	#
-	# this will run a client (you can use screen to do both):
-	sbcl --script <<EOF
-	(load "quicklisp/setup.lisp")
-	(load "cl-http2-protocol/cl-http2-protocol.asd")
-	(require :cl-http2-protocol)
-	(in-package :http2-example)
-	(example-client "https://localhost:8080/")
-    EOF
-	
+```Common Lisp
+sudo apt-get update && sudo apt-get dist-upgrade -y && sudo reboot
+# if prompted about grub choose "install package maintainer's version"
+#
+# copy files to server under ~ubuntu/cl-http2-protocol
+# log in again
+sudo apt-get install -y sbcl
+wget http://beta.quicklisp.org/quicklisp.lisp
+sbcl --script <<EOF
+(load "quicklisp.lisp")
+(quicklisp-quickstart:install)
+(ql:quickload :swank)
+(ql:quickload :alexandria)
+(ql:quickload :babel)
+(ql:quickload :puri)
+(ql:quickload :usocket)
+(ql:quickload :cl+ssl)
+EOF
+# and this one starts the server:
+sbcl --script <<EOF
+(load "quicklisp/setup.lisp")
+(load "cl-http2-protocol/cl-http2-protocol.asd")
+(require :cl-http2-protocol)
+(in-package :http2-example)
+(example-server :secure t)
+EOF
+# now you have an HTTP/2.0 server on port 8080
+# note, any exception will cause it to exit
+# EXAMPLE-SERVER accepts a :port keyword as well
+#
+# this will run a client (you can use screen to do both):
+sbcl --script <<EOF
+(load "quicklisp/setup.lisp")
+(load "cl-http2-protocol/cl-http2-protocol.asd")
+(require :cl-http2-protocol)
+(in-package :http2-example)
+(example-client "https://localhost:8080/")
+EOF
+```
 
 Getting Started
 ---------------
 
-    (load "cl-http2-protocol/cl-http2-protocol.asd")
-    (require :cl-http2-protocol)
+```Common Lisp
+(load "cl-http2-protocol/cl-http2-protocol.asd")
+(require :cl-http2-protocol)
 
-    (defvar socket #|  provide a transport...  |#)
+(defvar socket #|  provide a transport...  |#)
 
-    (defvar conn (make-instance 'client))
-    (on conn :frame (lambda (bytes) #|  send the bytes...  |#))
-	
-    (loop for bytes = #|  read some bytes...  |#
-          if bytes (connection<< conn bytes) else (return))
+(defvar conn (make-instance 'client))
+(on conn :frame (lambda (bytes) #|  send the bytes...  |#))
+
+(loop for bytes = #|  read some bytes...  |#
+      if bytes (connection<< conn bytes) else (return))
+```
 
 Check out `EXAMPLE-CLIENT` and `EXAMPLE-SERVER` in `HTTP2-EXAMPLE` for
 basic examples. These functions use `CL+SSL` for secure connections,
@@ -182,31 +187,32 @@ logic. From there, you can subscribe to connection level events, or
 invoke appropriate APIs to allocate new streams and manage the
 lifecycle. For example:
 
-	;;; server
-	
-	(in-package :http2-example)
-	
-    (defvar server (make-instance 'server))
+```Common Lisp
+;;; server
 
-	(on server :stream (lambda (stream) ...))  ; process inbound stream
-	(on server :frame (lambda (bytes) ...))  ; encoded HTTP 2.0 frames
+(in-package :http2-example)
 
-	(ping server (lambda (payload) ...))  ; send ping, process pong
-	
-	(goaway server)  ; send goaway frame to the client
+(defvar server (make-instance 'server))
 
-	;;; client
+(on server :stream (lambda (stream) ...))  ; process inbound stream
+(on server :frame (lambda (bytes) ...))  ; encoded HTTP 2.0 frames
 
-	(in-package :http2-example)
+(ping server (lambda (payload) ...))  ; send ping, process pong
 
-	(defvar client (make-instance 'client))
+(goaway server)  ; send goaway frame to the client
 
-	(on client :promise (lambda (stream) ...))  ; process push promise
+;;; client
 
-	(defparameter stream (new-stream client))  ; allocate new stream
-	(headers stream '((":method" . "post")) :end-stream: nil)
-	(data stream (buffer-simple "Hello") :end-stream t)
-	
+(in-package :http2-example)
+
+(defvar client (make-instance 'client))
+
+(on client :promise (lambda (stream) ...))  ; process push promise
+
+(defparameter stream (new-stream client))  ; allocate new stream
+(headers stream '((":method" . "post")) :end-stream: nil)
+(data stream (buffer-simple "Hello") :end-stream t)
+```
 
 Events emitted by the `CONNECTION` object:
 
@@ -270,33 +276,35 @@ response processing.
 
 For sake of example, let's take a look at a simple server implementation:
 
-	(defvar conn (make-instance 'server))
+```Common Lisp
+(defvar conn (make-instance 'server))
 
-	; emits new streams opened by the client
-	(on conn :stream
-	  (lambda (stream)
-	    (on stream :active
-	      (lambda () ))  ; fires when stream transitions to open
-	    (on stream :close
-	      (lambda (err) ))  ; stream is closed by client and server
+; emits new streams opened by the client
+(on conn :stream
+  (lambda (stream)
+    (on stream :active
+      (lambda () ))  ; fires when stream transitions to open
+    (on stream :close
+      (lambda (err) ))  ; stream is closed by client and server
 
-	    (on stream :headers
-	      (lambda (head) ))  ; header callback
-	    (on stream :data
-	      (lambda (chunk) ))  ; body payload callback
-		  
-	    (on stream :half-close
-		  (lambda ()
-		    ; ... generate response ...
-			; send response
-			(headers stream '((":status" . "200")
-			                  ("content-type" . "text/plain")))
-							  
-            ; split response between multiple DATA frames
-			(let ((chunk1 (buffer-simple "stuff "))
-			      (chunk2 (buffer-simple "more stuff")))
-			  (data stream chunk1 :end-stream nil)
-			  (data stream chunk2))))))
+    (on stream :headers
+      (lambda (head) ))  ; header callback
+    (on stream :data
+      (lambda (chunk) ))  ; body payload callback
+	  
+    (on stream :half-close
+	  (lambda ()
+	    ; ... generate response ...
+		; send response
+		(headers stream '((":status" . "200")
+		                  ("content-type" . "text/plain")))
+						  
+        ; split response between multiple DATA frames
+		(let ((chunk1 (buffer-simple "stuff "))
+		      (chunk2 (buffer-simple "more stuff")))
+		  (data stream chunk1 :end-stream nil)
+		  (data stream chunk2))))))
+```
 
 Events emitted by the `STREAM` object:
 
@@ -339,13 +347,15 @@ Each HTTP 2.0
 that can be sent when the new stream is initialized, and optionally
 reprioritized later:
 
-    (defvar client (make-instance 'client))
+```Common Lisp
+(defvar client (make-instance 'client))
 
-    (defvar default-priority-stream (new-stream client))
-	(defvar custom-priority-stream (new-stream client :priority 42))
+(defvar default-priority-stream (new-stream client))
+(defvar custom-priority-stream (new-stream client :priority 42))
 
-    ; sometime later, change priority value
-	(reprioritize custom-priority-stream 3200)  ; emits PRIORITY frame
+; sometime later, change priority value
+(reprioritize custom-priority-stream 3200)  ; emits PRIORITY frame
+```
 
 On the opposite side, the server can optimize its stream processing
 order or resource allocation by accessing the stream priority value
@@ -372,19 +382,23 @@ frames are automatically buffered until window is updated.
 The only thing left is for your application to specify the logic as to
 when to emit window updates:
 
-    (buffered-amount conn)      ; check amount of buffered data
-	(conn-window conn)          ; check current window size
-	(window-update conn 1024)   ; increment connection window by 1024 bytes
+```Common Lisp
+(buffered-amount conn)      ; check amount of buffered data
+(conn-window conn)          ; check current window size
+(window-update conn 1024)   ; increment connection window by 1024 bytes
 
-	(buffered-amount stream)    ; check amount of buffered data
-	(stream-window stream)      ; check current window size
-	(window-update stream 2048) ; increment stream window by 2048 bytes
+(buffered-amount stream)    ; check amount of buffered data
+(stream-window stream)      ; check current window size
+(window-update stream 2048) ; increment stream window by 2048 bytes
+```
 
 Alternatively, flow control can be disabled by emitting an appropriate
 settings frame on the connection:
 
-	; limit the number of concurrent streams to 100 and disable flow control
-    (settings conn :streams 100 :window +infinity)
+```Common Lisp
+; limit the number of concurrent streams to 100 and disable flow control
+(settings conn :streams 100 :window +infinity)
+```
 
 The symbol `+INFINITY` is defined in util.lisp and should be a symbol
 macro for IEEE floating point positive infinity on your CL
@@ -400,44 +414,50 @@ frame which contains the headers of the promised resource, followed by
 the response to the original request, as well as promised resource
 payloads (which may be interleaved). A simple example is in order:
 
-    (defvar conn (make-instance 'server))
+```Common Lisp
+(defvar conn (make-instance 'server))
 
-    (on conn :stream
-	  (lambda (stream)
-	    (on stream :headers
-		  (lambda (head) ... ))
-	    (on stream :data
-		  (lambda (chunk ... ))
+(on conn :stream
+  (lambda (stream)
+    (on stream :headers
+	  (lambda (head) ... ))
+    (on stream :data
+	  (lambda (chunk ... ))
 
-        ; fires when client terminates its request (i.e. request finished)
-        (on stream :half-close
-		  (lambda ()
-		    (let ((head '((":status" . "200")
-			              (":path" . "/other_resource")
-						  ("content-type" . "text/plain")))
-	              promise)
-	          (promise stream head
-			    (lambda (push)
-				  (headers push ...)
-				  (setf promise push))))
-				  
-	        (headers stream '((":status" . "200")
-			                  ("content-type" . "text/plain")))
-	        (data stream response-chunk :end-stream nil)
-			(data promise payload)
-			(data stream last-chunk))))))
+    ; fires when client terminates its request (i.e. request finished)
+    (on stream :half-close
+	  (lambda ()
+	    (let ((head '((":status" . "200")
+		              (":path" . "/other_resource")
+					  ("content-type" . "text/plain")))
+              promise)
+          (promise stream head
+		    (lambda (push)
+			  (headers push ...)
+			  (setf promise push))))
+			  
+        (headers stream '((":status" . "200")
+		                  ("content-type" . "text/plain")))
+        (data stream response-chunk :end-stream nil)
+		(data promise payload)
+		(data stream last-chunk))))))
+```
 
 When a new push promise stream is sent by the server, the client is
 notified via the `:promise` event:
 
-    (defvar conn (make-instance 'client))
-	(on conn :promise
-	  (lambda (push)
-	    ; process push stream
-		))
+```Common Lisp
+(defvar conn (make-instance 'client))
+(on conn :promise
+  (lambda (push)
+    ; process push stream
+	))
+```
 
 The client can cancel any given push stream (via `STREAM-CLOSE`), or
 disable server push entirely by sending the appropriate settings frame
 (note that below setting only impacts server > client direction):
 
-    (settings client :streams: 0)  ; setting max limit to 0 disables server push
+```Common Lisp
+(settings client :streams: 0)  ; setting max limit to 0 disables server push
+```
