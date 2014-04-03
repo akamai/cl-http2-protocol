@@ -384,4 +384,4 @@ aborted, and once sent, raise a local exception."
 		       (simple-condition-format-control msg)
 		       (simple-condition-format-arguments msg))))
 
-    (raise (find-symbol (symbol-name type)) msg)))
+    (raise (find-symbol (concatenate 'string "HTTP2-" (symbol-name type))) msg)))

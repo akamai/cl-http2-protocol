@@ -414,10 +414,10 @@ to performing any application processing."
      (if (member :end-stream (getf frame :flags)) t nil))
     (otherwise nil)))
 
-(defmethod stream-error ((stream stream) &key (type :http-stream-error) (msg "Stream error"))
+(defmethod stream-error ((stream stream) &key (type :stream-error) (msg "Stream error"))
   (with-slots (error state) stream
     (setf error type)
     (when (not (eq state :closed))
-      (stream-close stream type))
+      (stream-close stream (if (eq type :stream-error) :protocol-error type)))
 
-    (raise (find-symbol (symbol-name type)) msg)))
+    (raise (find-symbol (concatenate 'string "HTTP2-" (symbol-name type))) msg)))
