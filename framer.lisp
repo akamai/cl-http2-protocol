@@ -45,7 +45,7 @@
 				 :protocol-error     1
 				 :internal-error     2
 				 :flow-control-error 3
-				 :http-stream-closed 5
+				 :stream-closed      5
 				 :frame-too-large    6
 				 :refused-stream     7
 				 :cancel             8
