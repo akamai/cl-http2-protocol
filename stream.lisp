@@ -71,7 +71,7 @@
   "Processes incoming HTTP 2.0 frames. The frames must be decoded upstream."
   (with-slots (priority window) stream
     (transition stream frame nil)
-  
+
     (case (getf frame :type)
       (:data
        (when (not (getf frame :ignore))
@@ -159,6 +159,11 @@ close the underlying connection."
   "Sends a RST_STREAM indicating that the stream has been refused prior
 to performing any application processing."
   (send stream (list :type :rst-stream :error :refused-stream)))
+
+(defmethod connected ((stream stream))
+  "Marks a stream as a successful CONNECT method stream where the 2xx
+success headers have been sent and the stream is ready for DATA frames."
+  (change-class stream 'connect-stream))
 
 ; HTTP 2.0 Stream States
 ; - http://tools.ietf.org/html/draft-ietf-httpbis-http2-05#section-5
@@ -284,13 +289,13 @@ to performing any application processing."
       (:open
        (if sending
 	   (case (getf frame :type)
-	     ((:data :headers :continuation)
+	     ((:data :headers)
 	      (when (end-stream-p stream frame)
 		(event stream :half-closed-local)))
 	     (:rst-stream
 	      (event stream :local-rst)))
 	   (case (getf frame :type)
-	     ((:data :headers :continuation)
+	     ((:data :headers)
 	      (when (end-stream-p stream frame)
 		(event stream :half-closed-remote)))
 	     (:rst-stream
@@ -310,7 +315,7 @@ to performing any application processing."
 	       (event stream :local-rst)
 	       (stream-error stream))
 	   (case (getf frame :type)
-	     ((:data :headers :continuation)
+	     ((:data :headers)
 	      (when (end-stream-p stream frame)
 		(event stream :remote-closed)))
 	     (:rst-stream
@@ -332,7 +337,7 @@ to performing any application processing."
       (:half-closed-remote
        (if sending
 	   (case (getf frame :type)
-	     ((:data :headers :continuation)
+	     ((:data :headers)
 	      (when (end-stream-p stream frame)
 		(event stream :local-closed)))
 	     (:rst-stream
@@ -410,7 +415,7 @@ to performing any application processing."
 
 (defmethod end-stream-p ((stream stream) frame)
   (case (getf frame :type)
-    ((:data :headers :continuation)
+    ((:data :headers)
      (if (member :end-stream (getf frame :flags)) t nil))
     (otherwise nil)))
 
@@ -421,3 +426,16 @@ to performing any application processing."
       (stream-close stream (if (eq type :stream-error) :protocol-error type)))
 
     (raise (find-symbol (concatenate 'string "HTTP2-" (symbol-name type))) msg)))
+
+(defclass connect-stream (stream) ()
+  (:documentation "Subclass of STREAM for CONNECT method."))
+
+(defparameter *allowed-connect-stream-frame-types* '((:data :rst-stream :window-update :priority)))
+
+(defmethod receive :before ((stream connect-stream) frame)
+  (unless (member (getf frame :type) *allowed-connect-stream-frame-types*)
+    (stream-error stream :msg "Disallowed frame on CONNECT stream.")))
+
+(defmethod send :before ((stream connect-stream) frame)
+  (unless (member (getf frame :type) *allowed-connect-stream-frame-types*)
+    (stream-error stream :msg "Disallowed frame on CONNECT stream.")))

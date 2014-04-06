@@ -80,7 +80,7 @@
 (defclass encoding-context (error-include)
   ((type :initarg :type)
    (table :reader table)
-   (limit :initarg :limit :initform 4096)
+   (limit :accessor table-limit :initarg :limit :initform 4096)
    (refset :reader refset :initform (make-array 128 :element-type t :adjustable t :fill-pointer 0)))
   (:documentation "Encoding context: a header table and reference set for one direction"))
 

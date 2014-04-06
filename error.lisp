@@ -38,12 +38,20 @@ sent, or invalid command issued."))
 
 ; recoverable errors
 
-(define-condition http2-stream-closed (http2-error) ()
+(define-condition http2-error-recoverable (http2-error) ())
+
+(define-condition http2-stream-closed (http2-error-recoverable) ()
   (:documentation "Raised if stream has been closed and new frames cannot be sent."))
 
-(define-condition http2-connection-closed (http2-error) ()
+(define-condition http2-connection-closed (http2-error-recoverable) ()
   (:documentation "Raised if connection has been closed (or draining) and new stream
 cannot be opened."))
 
-(define-condition http2-stream-limit-exceeded (http2-error) ()
+(define-condition http2-stream-limit-exceeded (http2-error-recoverable) ()
   (:documentation "Raised if stream limit has been reached and new stream cannot be opened."))
+
+(define-condition http2-push-disabled (http2-error-recoverable) ()
+  (:documentation "Raised if peer has disabled push on this connection and a push is requested."))
+
+(define-condition http2-enhance-your-calm (http2-error-recoverable) ()
+  (:documentation "Raised if ENHANCE_YOUR_CALM is issued to peer."))

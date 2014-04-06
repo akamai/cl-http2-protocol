@@ -28,15 +28,17 @@
 					      :end-headers 2 :priority 3)
 			      :priority      ()
 			      :rst-stream    ()
-			      :settings      ()
+			      :settings      (:ack 1)
 			      :push-promise  (:end-push-promise 0)
-			      :ping          (:pong 0)
+			      :ping          (:ack 0)
 			      :goaway        ()
 			      :window-update ()
-			      :continuation  (:end-stream 0 :end-headers 1))
+			      :continuation  (:end-headers 1))
   "Per frame flags as defined by the spec")
 
-(defparameter *defined-settings* '(:settings-max-concurrent-streams 4
+(defparameter *defined-settings* '(:settings-header-table-size      1
+				   :settings-enable-push            2
+				   :settings-max-concurrent-streams 4
 				   :settings-initial-window-size    7
 				   :settings-flow-control-options   10)
   "Default settings as defined by the spec")
@@ -45,11 +47,14 @@
 				 :protocol-error     1
 				 :internal-error     2
 				 :flow-control-error 3
+				 :settings-timeout   4
 				 :stream-closed      5
-				 :frame-too-large    6
+				 :frame-size-error   6
 				 :refused-stream     7
 				 :cancel             8
-				 :compression-error  9)
+				 :compression-error  9
+				 :connect-error      10
+				 :enhance-your-calm  420)
   "Default error types as defined by the spec")
 
 (defparameter *rbit*  #x7FFFFFFF)

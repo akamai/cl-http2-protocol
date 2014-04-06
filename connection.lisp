@@ -67,6 +67,10 @@ new streams for current connection."
       (send connection (list :type :goaway :last-stream last-stream
 			     :error error :payload payload)))))
 
+(defmethod restrict ((connection connection))
+  "Issue ENHANCE_YOUR_CALM to peer."
+  (connection-error :type :enhance-your-calm :msg "Issued ENHACE_YOUR_CALM to peer."))
+
 (defmethod settings ((connection connection) &optional
 		     (stream-limit (slot-value connection 'stream-limit))
 		     (window-limit (slot-value connection 'window-limit)))
@@ -273,10 +277,10 @@ frame addressed to stream ID = 0."
 	  (incf window (getf frame :increment))
 	  (send-data connection nil t))
 	 (:ping
-	  (if (member :pong (getf frame :flags))
+	  (if (member :ack (getf frame :flags))
 	      (emit connection :pong (getf frame :payload))
 	      (send connection
-		    (list :type :ping :stream 0 :flags (list :pong)
+		    (list :type :ping :stream 0 :flags (list :ack)
 			  :payload (getf frame :payload)))))
 	 (:goaway
 	  ; Receivers of a GOAWAY frame MUST NOT open additional streams on
@@ -295,30 +299,50 @@ frame addressed to stream ID = 0."
     (when (or (not (eq (getf frame :type) :settings))
 	      (/= (getf frame :stream) 0))
       (connection-error connection))
+    (when (and (member :ack (getf frame :flags))
+	       (getf frame :payload))
+      (connection-error connection :type :frame-size-error))
 
     (when (getf frame :payload)
       (doplist (key v (getf frame :payload))
-	(case key
-	  (:settings-max-concurrent-streams
-	   (setf stream-limit v))
+	(connection-setting connection key v))
 
-	  ; A change to SETTINGS_INITIAL_WINDOW_SIZE could cause the available
-	  ; space in a flow control window to become negative. A sender MUST
-	  ; track the negative flow control window, and MUST NOT send new flow
-	  ; controlled frames until it receives WINDOW_UPDATE frames that cause
-	  ; the flow control window to become positive.
-	  (:settings-initial-window-size
-	   (flow-control-allowed-p connection)
-	   (setf window (+ (- window window-limit) v))
-	   (dohash (id stream streams)
-	     (emit stream :window (+ (- (stream-window stream) window-limit) v)))
-	   (setf window-limit v))
+      ; Bit 1 being set indicates that this frame acknowledges
+      ; receipt and application of the peer's SETTINGS frame. When this
+      ; bit is set, the payload of the SETTINGS frame MUST be empty.
+      (send connection (list :type :settings :flags (:ack) :payload nil)))))
 
-	  (:settings-flow-control-options
-	   (flow-control-allowed-p connection)
-	   (when (= v 1)
-	     (setf window +infinity
-		   window-limit +infinity))))))))
+(defmethod connection-setting ((connection connection) (key (eql :settings-header-table-size)) value)
+  (setf (table-limit (compressor connection)) value))
+
+; this will be overridden for server class
+(defmethod connection-setting ((connection connection) (key (eql :settings-enable-push)) value)
+  (declare (ignore value))
+  (connection-error :msg "SETTINGS_ENABLE_PUSH received, but connection is not a server."))
+
+; A change to SETTINGS_INITIAL_WINDOW_SIZE could cause the available
+; space in a flow control window to become negative. A sender MUST
+; track the negative flow control window, and MUST NOT send new flow
+; controlled frames until it receives WINDOW_UPDATE frames that cause
+; the flow control window to become positive.
+(defmethod connection-setting ((connection connection) (key (eql :settings-initial-window-size)) value)
+  (with-slots (window window-limit streams) connection
+    (flow-control-allowed-p connection)
+    (setf window (+ (- window window-limit) value))
+    (dohash (id stream streams)
+      (emit stream :window (+ (- (stream-window stream) window-limit) value)))
+    (setf window-limit value)))
+
+(defmethod connection-setting ((connection connection) (key (eql :settings-max-concurrent-streams)) value)
+  (with-slots (stream-limit) connection
+    (setf stream-limit value)))
+
+(defmethod connection-setting ((connection connection) (key (eql :settings-flow-control-options)) value)
+  (with-slots (window window-limit) connection
+    (flow-control-allowed-p connection)
+    (when (= value 1)
+      (setf window +infinity
+	    window-limit +infinity))))
 
 (defmethod decode-headers ((connection connection) frame)
   "Decode headers payload and update connection decompressor state.
