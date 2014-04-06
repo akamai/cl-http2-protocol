@@ -69,7 +69,7 @@ new streams for current connection."
 
 (defmethod restrict ((connection connection))
   "Issue ENHANCE_YOUR_CALM to peer."
-  (connection-error :type :enhance-your-calm :msg "Issued ENHACE_YOUR_CALM to peer."))
+  (goaway :error :enhance-your-calm))
 
 (defmethod settings ((connection connection) &optional
 		     (stream-limit (slot-value connection 'stream-limit))

@@ -105,7 +105,7 @@ Set KEY-NAME and VALUE-NAME appropriately for each iteration."
   "Convenience macro to raise an exception of ERROR-TYPE with ERROR-MSG and optional ERROR-ARGS.
 If the error is a recoverable HTTP2 error, a restart is installed to continue from the RAISE."
   (if (subtypep (find-symbol (symbol-name error-type)) 'http2-error-recoverable)
-      `(with-simple-restart (continue-from-error "Continue from the error")
+      `(with-simple-restart (continue "Continue from the error")
 	 (error (make-condition ,error-type
 				:format-control ,error-msg
 				:format-arguments (list ,@error-args))))

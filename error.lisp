@@ -52,6 +52,3 @@ cannot be opened."))
 
 (define-condition http2-push-disabled (http2-error-recoverable) ()
   (:documentation "Raised if peer has disabled push on this connection and a push is requested."))
-
-(define-condition http2-enhance-your-calm (http2-error-recoverable) ()
-  (:documentation "Raised if ENHANCE_YOUR_CALM is issued to peer."))

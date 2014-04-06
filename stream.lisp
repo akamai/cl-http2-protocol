@@ -160,6 +160,10 @@ close the underlying connection."
 to performing any application processing."
   (send stream (list :type :rst-stream :error :refused-stream)))
 
+(defmethod restrict ((stream stream))
+  "Issue ENHANCE_YOUR_CALM to peer."
+  (send stream (list :type :rst-stream :error :ehance-your-calm)))
+
 (defmethod connected ((stream stream))
   "Marks a stream as a successful CONNECT method stream where the 2xx
 success headers have been sent and the stream is ready for DATA frames."
