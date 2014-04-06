@@ -316,7 +316,6 @@ to performing any application processing."
 	     (:rst-stream
 	      (event stream :remote-rst))
 	     ((:window-update :priority)
-	      ; *** In the Ruby :ignore on the next line is misspelled :igore
 	      (setf (getf frame :ignore) t)))))
 
       ; A stream that is "half closed (remote)" is no longer being used by
