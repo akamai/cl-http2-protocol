@@ -280,7 +280,7 @@ response processing.
 
 For sake of example, let's take a look at a simple server implementation:
 
-```Common Lisp
+```lisp
 (defvar conn (make-instance 'server))
 
 ; emits new streams opened by the client
@@ -351,7 +351,7 @@ Each HTTP 2.0
 that can be sent when the new stream is initialized, and optionally
 reprioritized later:
 
-```Common Lisp
+```lisp
 (defvar client (make-instance 'client))
 
 (defvar default-priority-stream (new-stream client))
@@ -386,7 +386,7 @@ frames are automatically buffered until window is updated.
 The only thing left is for your application to specify the logic as to
 when to emit window updates:
 
-```Common Lisp
+```lisp
 (buffered-amount conn)      ; check amount of buffered data
 (conn-window conn)          ; check current window size
 (window-update conn 1024)   ; increment connection window by 1024 bytes
@@ -399,7 +399,7 @@ when to emit window updates:
 Alternatively, flow control can be disabled by emitting an appropriate
 settings frame on the connection:
 
-```Common Lisp
+```lisp
 ; limit the number of concurrent streams to 100 and disable flow control
 (settings conn :streams 100 :window +infinity)
 ```
@@ -418,7 +418,7 @@ frame which contains the headers of the promised resource, followed by
 the response to the original request, as well as promised resource
 payloads (which may be interleaved). A simple example is in order:
 
-```Common Lisp
+```lisp
 (defvar conn (make-instance 'server))
 
 (on conn :stream
@@ -450,7 +450,7 @@ payloads (which may be interleaved). A simple example is in order:
 When a new push promise stream is sent by the server, the client is
 notified via the `:promise` event:
 
-```Common Lisp
+```lisp
 (defvar conn (make-instance 'client))
 (on conn :promise
   (lambda (push)
@@ -462,6 +462,6 @@ The client can cancel any given push stream (via `STREAM-CLOSE`), or
 disable server push entirely by sending the appropriate settings frame
 (note that below setting only impacts server > client direction):
 
-```Common Lisp
+```lisp
 (settings client :streams: 0)  ; setting max limit to 0 disables server push
 ```
