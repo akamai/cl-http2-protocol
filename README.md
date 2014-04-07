@@ -18,7 +18,7 @@ included for a "Hello, World" style test, which employ TLS using
 `CL+SSL` and OpenSSL. For unencrypted communication (a.k.a. plain or
 direct), code using `USOCKET` is included (on SBCL, another option is
 available using `SB-BSD-SOCKETS`), but this is offered as a
-convenience only, as HTTP/2.0 will enforce TLS.
+convenience only, as HTTP/2.0 will likely enforce TLS.
 
 Support for:
 
@@ -86,7 +86,7 @@ port. For the most part, the major differences are:
 * net.lisp provides a `NET` class that abstracts networking
   sufficiently to allow various approaches (`CL+SSL`, `USOCKET` albeit
   not in the most efficient manner due to reading variable-sized
-  binary sequences, `SB-BSD-SOCKETS` on SBCL which is more efficient).
+  binary sequences, and `SB-BSD-SOCKETS` on SBCL which is more efficient).
 
 * The code in the example folder is contained in example.lisp in
   the form of functions.
@@ -426,7 +426,7 @@ payloads (which may be interleaved). A simple example is in order:
     (on stream :headers
 	  (lambda (head) ... ))
     (on stream :data
-	  (lambda (chunk ... ))
+	  (lambda (chunk) ... ))
 
     ; fires when client terminates its request (i.e. request finished)
     (on stream :half-close
@@ -463,5 +463,5 @@ disable server push entirely by sending the appropriate settings frame
 (note that below setting only impacts server > client direction):
 
 ```lisp
-(settings client :streams: 0)  ; setting max limit to 0 disables server push
+(settings client :streams 0)  ; setting max limit to 0 disables server push
 ```
