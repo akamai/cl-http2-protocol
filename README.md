@@ -164,7 +164,7 @@ EOF
 Getting Started
 ---------------
 
-```common lisp
+```lisp
 (load "cl-http2-protocol/cl-http2-protocol.asd")
 (require :cl-http2-protocol)
 
