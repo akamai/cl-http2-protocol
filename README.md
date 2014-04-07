@@ -121,7 +121,7 @@ Server Setup and Example
 To run this on a fresh Ubuntu Linux 13.10 server, follow these
 instructions. A non-root user of "ubuntu" with sudo access is assumed.
 
-```Common Lisp
+```shell
 sudo apt-get update && sudo apt-get dist-upgrade -y && sudo reboot
 # if prompted about grub choose "install package maintainer's version"
 #
@@ -164,7 +164,7 @@ EOF
 Getting Started
 ---------------
 
-```Common Lisp
+```common lisp
 (load "cl-http2-protocol/cl-http2-protocol.asd")
 (require :cl-http2-protocol)
 
@@ -191,7 +191,7 @@ logic. From there, you can subscribe to connection level events, or
 invoke appropriate APIs to allocate new streams and manage the
 lifecycle. For example:
 
-```Common Lisp
+```lisp
 ;;; server
 
 (in-package :http2-example)
