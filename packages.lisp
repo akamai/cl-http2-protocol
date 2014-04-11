@@ -11,8 +11,8 @@
 	   #:flatten-n #:reverse-plist #:dohash
 	   #:+infinity #:-infinity
 	   #:lambda-ignore #:lambda-apply
-	   #:raise #:pack #:unpack #:*debug-mode*
-	   #:handler-case-unless))
+	   #:raise #:pack #:unpack #:split-if
+	   #:*debug-mode* #:handler-case-unless))
 
 (defpackage :cl-http2-protocol
   (:nicknames :http2)

@@ -217,6 +217,15 @@ C - character"
 	     ,@(first sets)
 	     ,value)))))
 
+
+(defun split-if (predicate string)
+  "Split STRING on delimiter groups wherein each character is true for function PREDICATE."
+  (loop
+     for beg = 0 then (position-if-not predicate string :start (1+ end))
+     for end = (position-if predicate string :start beg)
+     collect (subseq string beg end)
+     while end))
+
 (defvar *debug-mode* t)
 
 (defmacro handler-case-unless (var expression &body clauses)

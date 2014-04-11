@@ -328,16 +328,65 @@ entry of the header table is always associated to the index 0."
 
   buffer)
 
+(defmethod split-cookies ((compressor compressor) headers)
+  (if (find "cookie" headers :key #'car :test #'string=)
+      (loop
+	 with new-headers = nil
+	 for header in headers
+	 for (k . v) = header
+	 if (string= k "cookie")
+	 do (dolist (v* (split-if (lambda (c) (or (char= c #\;) (char= c #\Space) (char= c #\Null))) v))
+	      (push (cons k v*) new-headers))
+	 else
+	 do (push header new-headers)
+	 finally (return (nreverse new-headers)))
+      headers))
+
+(defmethod combine ((compress compressor) headers)
+  ; this code is longer than necessary because it optimizes speed and memory for no/few duplicates
+  ; in the case of no duplicates, there is no cons'ing and headers is simply returned with one pass
+  ; as duplicates are found some structures grow, and a second pass is necessary to cons up the structure
+  ; individual header cons's will be reused in the new structure if they are not dup's
+  (loop
+     with dups = nil   ; each entry is a list: the original index integer, followed by all values
+     with dupidx = nil ; each entry is an index integer
+     with l = (length headers)
+     for i below l
+     for current-start on headers
+     for (current-k . current-v) = (car current-start)
+     if (and (not (find i dupidx :test #'=))
+	     (not (string= current-k "set-cookie")))
+     do (loop
+	   for j from (1+ i) below l
+	   for (k . v) in (cdr current-start)
+	   when (string= k current-k)
+	   collect j into js and
+	   collect v into vs
+	   finally (if js (progn
+			    (push (cons i (cons current-v vs)) dups)
+			    (appendf dupidx (cons i js)))))
+     finally (return (if dups
+			 (loop
+			    for i below l
+			    for dup = (find i dups :key #'car :test #'=)
+			    for header in headers
+			    if dup
+			    collect (cons (car header) (format nil #.(format nil "~~{~~A~~^~C~~}" #\Null) (cdr dup)))
+			    else
+			    unless (find i dupidx :test #'=)
+			    collect header)
+			 headers))))
+
 (defmethod encode ((compressor compressor) headers)
   "Encodes provided list of HTTP headers."
   (with-slots (cc) compressor
     (let ((buffer (make-instance 'buffer))
 	  (commands nil))
-
+    
       ; Literal header names MUST be translated to lowercase before
       ; encoding and transmission.
       ; (setf headers (mapcar (lambda (h) (cons (string-downcase (car h)) (cdr h))) headers))
-    
+
       ; Generate remove commands for missing headers
       (loop
 	 for (idx . (wk . wv)) across (refset cc)
@@ -357,6 +406,9 @@ entry of the header table is always associated to the index 0."
 		     (buffer<< buffer x))))
 
       buffer)))
+
+(defmethod encode-with-ordering ((compressor compressor) headers)
+  (split-cookies compressor (combine compressor headers)))
 
 (defclass decompressor ()
   ((cc-type :initarg :type)
