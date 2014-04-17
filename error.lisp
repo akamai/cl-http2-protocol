@@ -52,3 +52,20 @@ cannot be opened."))
 
 (define-condition http2-push-disabled (http2-error-recoverable) ()
   (:documentation "Raised if peer has disabled push on this connection and a push is requested."))
+
+(defmacro raise (error-type &optional error-msg &rest error-args)
+  "Convenience macro to raise an exception of ERROR-TYPE with ERROR-MSG and optional ERROR-ARGS.
+If the error is a recoverable HTTP2 error, a restart is installed to continue from the RAISE."
+  (when (keywordp error-type)
+    (setq error-type (find-symbol (symbol-name error-type))))
+  (let ((restartable (and (symbolp error-type) (subtypep error-type 'http2-error-recoverable))))
+    (when (symbolp error-type)
+      (setq error-type (list 'quote error-type)))
+    (if restartable
+     `(with-simple-restart (continue "Continue from the error")
+	(error (make-condition ,error-type
+			       :format-control ,error-msg
+			       :format-arguments (list ,@error-args))))
+     `(error (make-condition ,error-type
+			     :format-control ,error-msg
+			     :format-arguments (list ,@error-args))))))

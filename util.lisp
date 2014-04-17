@@ -101,18 +101,6 @@ Set KEY-NAME and VALUE-NAME appropriately for each iteration."
      (apply (function ,(caar body)) ,@(cdar body) args-to-be-applied)
      ,@(cdr body)))
 
-(defmacro raise (error-type &optional error-msg &rest error-args)
-  "Convenience macro to raise an exception of ERROR-TYPE with ERROR-MSG and optional ERROR-ARGS.
-If the error is a recoverable HTTP2 error, a restart is installed to continue from the RAISE."
-  (if (subtypep (find-symbol (symbol-name error-type)) 'http2-error-recoverable)
-      `(with-simple-restart (continue "Continue from the error")
-	 (error (make-condition ,error-type
-				:format-control ,error-msg
-				:format-arguments (list ,@error-args))))
-      `(error (make-condition ,error-type
-			      :format-control ,error-msg
-			      :format-arguments (list ,@error-args)))))
-
 (defmacro pack (control values)
   "A macro that expands into code to pack VALUES into bytes per the template in CONTROL.
 CONTROL is a string of characters which can be of these:

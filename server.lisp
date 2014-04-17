@@ -27,7 +27,7 @@
   (destructuring-bind (parent headers flags) args
     (when (with-simple-restart (abort-promise "Abort the promise")
 	    (unless (push-enabled server)
-	      (raise 'http2-push-disabled "Push disabled, cannot promise: ~A" headers))
+	      (raise :http2-push-disabled "Push disabled, cannot promise: ~A" headers))
 	    t)
     
       (let ((promise (new-stream server :parent parent)))

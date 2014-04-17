@@ -2,6 +2,8 @@
 
 (in-package :cl-user)
 
+(declaim (optimize (speed 0) (space 0) (debug 3) (compilation-speed 0)))
+
 (defpackage :cl-http2-protocol-util
   (:nicknames :http2-util)
   (:documentation "Package of language utils")
@@ -11,7 +13,7 @@
 	   #:flatten-n #:reverse-plist #:dohash
 	   #:+infinity #:-infinity
 	   #:lambda-ignore #:lambda-apply
-	   #:raise #:pack #:unpack #:split-if
+	   #:pack #:unpack #:split-if
 	   #:*debug-mode* #:handler-case-unless))
 
 (defpackage :cl-http2-protocol

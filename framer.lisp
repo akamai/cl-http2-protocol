@@ -73,24 +73,24 @@
   (let (header)
 
     (when (not (getf *frame-types* (getf frame :type)))
-      (raise 'http2-compression-error "Invalid frame type (~A)" (getf frame :type)))
+      (raise :http2-compression-error "Invalid frame type (~A)" (getf frame :type)))
 
     (when (> (getf frame :length) *max-payload-size*)
-      (raise 'http2-compression-error "Frame size is too large: ~D" (getf frame :length)))
+      (raise :http2-compression-error "Frame size is too large: ~D" (getf frame :length)))
 
     (when (> (getf frame :stream) *max-stream-id*)
-      (raise 'http2-compression-error "Stream ID (~A) is too large" (getf frame :stream)))
+      (raise :http2-compression-error "Stream ID (~A) is too large" (getf frame :stream)))
 
     (when (and (eq (getf frame :type) :window-update)
 	       (> (getf frame :increment) *max-windowinc*))
-      (raise 'http2-compression-error "Window increment (~D) is too large" (getf frame :increment)))
+      (raise :http2-compression-error "Window increment (~D) is too large" (getf frame :increment)))
 
     (push (getf frame :length) header)
     (push (getf *frame-types* (getf frame :type)) header)
     (push (reduce (lambda (acc f)
 		    (let ((position (getf (getf *frame-flags* (getf frame :type)) f)))
 		      (when (null position)
-			(raise 'http2-compression-error "Invalid frame flag (~A) for ~A" f (getf frame :type)))
+			(raise :http2-compression-error "Invalid frame flag (~A) for ~A" f (getf frame :type)))
 		      (setf (ldb (byte 1 position) acc) 1)
 		      acc))
 		  (getf frame :flags) :initial-value 0) header)
@@ -150,14 +150,14 @@
       
       (:settings
        (when (/= (getf frame :stream) 0)
-	 (raise 'http2-compression-error "Invalid stream ID (~A)" (getf frame :stream)))
+	 (raise :http2-compression-error "Invalid stream ID (~A)" (getf frame :stream)))
 
        (doplist (k v (getf frame :payload))
 	 (when (not (integerp k))
 	   (setf k (getf *defined-settings* k))
 	   
 	   (when (null k)
-	     (raise 'http2-compression-error "Unknown settings ID for ~A" k)))
+	     (raise :http2-compression-error "Unknown settings ID for ~A" k)))
 	 
 	 (buffer<< bytes (pack *uint32* (list (logand k *rbyte*))))
 	 (buffer<< bytes (pack *uint32* (list v)))
@@ -170,7 +170,7 @@
 
       (:ping
        (when (/= (buffer-size (getf frame :payload)) 8)
-	 (raise 'http2-compression-error "Invalid payload size (~D != 8 bytes)"
+	 (raise :http2-compression-error "Invalid payload size (~D != 8 bytes)"
 		(buffer-size (getf frame :payload))))
 
        (buffer<< bytes (getf frame :payload))
@@ -250,7 +250,7 @@ does not contain enough data, no further work is performed."
   (when (not (integerp e))
     (if-let (d (getf *defined-errors* e))
       (setf e d)
-      (raise 'http2-compression-error "Unknown error ID for ~A" e))
+      (raise :http2-compression-error "Unknown error ID for ~A" e))
 
   (pack *uint32* (list e))))
 

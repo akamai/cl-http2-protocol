@@ -43,8 +43,8 @@
 (defmethod new-stream ((connection connection) &optional (priority *default-priority*) (parent nil))
   "Allocates new stream for current connection."
   (with-slots (state active-stream-count stream-limit stream-id) connection
-    (cond ((eq state :closed)                   (raise 'http2-connection-closed))
-	  ((= active-stream-count stream-limit) (raise 'http2-stream-limit-exceeded))
+    (cond ((eq state :closed)                   (raise :http2-connection-closed))
+	  ((= active-stream-count stream-limit) (raise :http2-stream-limit-exceeded))
 	  (t (prog1
 		 (activate-stream connection stream-id priority parent)
 	       (incf stream-id 2))))))
@@ -107,12 +107,12 @@ stream frames are passed to appropriate stream objects."
 	      (if (buffer-mismatch recv-buffer
 				   *connection-header*
 				   :end2 (buffer-size recv-buffer))
-		  (raise 'http2-handshake-error)
+		  (raise :http2-handshake-error)
 		  (return-from receive))
 	      (if (buffer-mismatch (buffer-read recv-buffer #.(buffer-size *connection-header*))
 				   *connection-header*
 				   :end1 #.(buffer-size *connection-header*))
-		  (raise 'http2-handshake-error)
+		  (raise :http2-handshake-error)
 		  (progn
 		    (setf state :connection-header)
 		    (settings connection stream-limit window-limit)))))
@@ -310,7 +310,7 @@ frame addressed to stream ID = 0."
       ; Bit 1 being set indicates that this frame acknowledges
       ; receipt and application of the peer's SETTINGS frame. When this
       ; bit is set, the payload of the SETTINGS frame MUST be empty.
-      (send connection (list :type :settings :flags (:ack) :payload nil)))))
+      (send connection (list :type :settings :flags '(:ack) :payload nil)))))
 
 (defmethod connection-setting ((connection connection) (key (eql :settings-header-table-size)) value)
   (setf (table-limit (compressor connection)) value))
