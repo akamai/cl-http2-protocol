@@ -3,22 +3,21 @@
 (in-package :cl-http2-protocol-example)
 
 ; Port note: The networking diverges a little bit from the Ruby
-; examples at first, then DO-CLIENT and DO-SERVER are similar as
-; functions to what ruby_examples/client.rb, ruby_examples/server.rb
-; do as executables.
-
-; To abstract networking differences when we wrap in SSL versus when
-; we don't, a NET class is defined that can NET-SOCKET-LISTEN,
-; NET-SOCKET-ACCEPT, NET-SOCKET-PREPARE-SERVER, NET-SOCKET-CLOSE,
-; NET-SOCKET-SHUTDOWN, NET-WRITE-VECTOR, NET-READ-VECTOR, and
-; NET-FINISH-OUTPUT. There are two versions, one for SSL, NET-SSL, and
-; one for plain, NET-PLAIN, although in practice you need to pick
-; NET-PLAIN-USOCKET or NET-PLAIN-SB-BSD-SOCKETS. We normalize calls,
-; housekeeping, and differences in exceptions. Importantly,
-; NET-READ-VECTOR must return 0 for no bytes read (think EAGAIN), a
-; number of bytes read from 1 up to the N provided depending on what
-; was available, or NIL when the peer has gracefully closed their end
-; of the socket. 
+; because we have more housekeeping to do. To abstract networking
+; differences when we wrap in SSL versus when we don't, a NET class is
+; defined that can NET-SOCKET-LISTEN, NET-SOCKET-ACCEPT,
+; NET-SOCKET-PREPARE-SERVER, NET-SOCKET-CLOSE, NET-SOCKET-SHUTDOWN,
+; NET-WRITE-VECTOR, NET-READ-VECTOR, and NET-FINISH-OUTPUT. There are
+; two versions, one for SSL, NET-SSL, and one for plain, NET-PLAIN,
+; although in practice you need to pick NET-PLAIN-USOCKET or
+; NET-PLAIN-SB-BSD-SOCKETS. We normalize calls, housekeeping, and
+; differences in exceptions. Importantly, NET-READ-VECTOR must return
+; 0 for no bytes read (think EAGAIN), a number of bytes read from 1 up
+; to the N provided depending on what was available, or NIL when the
+; peer has gracefully closed their end of the socket.
+;
+; Then we define SEND-BYTES, RECEIVE-BYTES, and RECEIVE-LOOP as
+; regular functions that use a NET object to perform their duties.
 ;
 ; Because eventually HTTP/2.0 will settle on whether TLS is required
 ; and related issues, this is likely to be simplified in the future.
