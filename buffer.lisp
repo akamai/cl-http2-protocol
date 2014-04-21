@@ -149,7 +149,7 @@ is done ignoring errors, so it may bail and use the raw bytes."
 (defun make-data-vector (n)
   "Call MAKE-ARRAY for size N (but not less than a standard size) for an adjustable fill-pointer byte array."
   (when (> n #.(* 64 1024))
-    (raise 'simple-condition "MAKE-DATA-VECTOR called with ~A as N value, greater than safety maximum." n))
+    (raise simple-condition "MAKE-DATA-VECTOR called with ~A as N value, greater than safety maximum." n))
   (make-array (max n 1024) :element-type '(unsigned-byte 8) :adjustable t :fill-pointer n))
 
 ; buffer operations
@@ -172,6 +172,11 @@ is done ignoring errors, so it may bail and use the raw bytes."
 (defmethod buffer<< ((buffer buffer) (vector vector))
   "Modifies BUFFER by concatenating the byte numbers in VECTOR, and returns BUFFER."
   (vector-concat vector (buffer-data buffer))
+  buffer)
+
+(defmethod buffer<< ((buffer buffer) (vector simple-vector))
+  "Modifies BUFFER by concatenating the byte numbers in VECTOR, and returns BUFFER."
+  (vector-concat (make-array (length vector) :element-type '(unsigned-byte 8) :initial-contents vector) (buffer-data buffer))
   buffer)
 
 (defmethod buffer<< ((buffer buffer) (string string))

@@ -74,7 +74,8 @@
       (receive-loop net conn))))
 
 (defun example-server (&key (interface "0.0.0.0") (port 8080)
-		       (net nil net-arg-p) (secure nil secure-arg-p))
+			 (net nil net-arg-p) (secure nil secure-arg-p)
+			 request-handler)
   (assert (or (not net-arg-p) (not secure-arg-p)) (net secure) "Provide either :NET or :SECURE")
   (ensuref net (make-instance (if secure
 				  'net-ssl
@@ -86,18 +87,18 @@
 	(format t "Starting server on port ~D~%" port)
 	(net-socket-listen net interface port)
 	(unwind-protect
-	     (loop (example-server-inner net))
+	     (loop (example-server-inner net request-handler))
 	  (net-socket-close net)
 	  (net-socket-shutdown net)))
     (address-in-use-error ()
       (format t "Address already in use.~%"))))
 
-(defun example-server-inner (net)
+(defun example-server-inner (net request-handler)
   (net-socket-accept net)
   (format t "New TCP connection!~%")
   (net-socket-prepare-server net)
   (handler-case
-      (example-server-accepted-socket net)
+      (example-server-accepted-socket net request-handler)
     (connection-reset-error ()
       (format t "Connection reset.~%")
       (net-socket-close net))
@@ -105,7 +106,7 @@
       (format t "End of file.~%")
       (net-socket-close net))))
 
-(defun example-server-accepted-socket (net)
+(defun example-server-accepted-socket (net request-handler)
   (let ((conn (make-instance 'server)))
     (on conn :frame
 	(lambda (bytes)
@@ -134,28 +135,37 @@
 		  (buffer<< buffer d)))
 	      
 	    (on stream :half-close
-		(lambda ()
-		  (macrolet ((req-header (name) `(cdr (assoc ,name req :test #'string=))))
-		    (format t "client closed its end of the stream~%")
+		(if request-handler
+		    (lambda ()
+		      (funcall request-handler stream req))
+		    (lambda ()
+		      (macrolet ((req-header (name) `(cdr (assoc ,name req :test #'string=))))
+			(format t "client closed its end of the stream~%")
 		    
-		    (let (response)
-		      (if (string= (req-header ":method") "post")
-			  (let ((post-str (buffer-string buffer)))
-			    (format t "Received POST request, payload: ~A~%" post-str)
-			    (setf response (buffer-simple "Hello HTTP 2.0! POST payload: " post-str)))
-			  (progn
-			    (format t "Received GET request~%")
-			    (setf response (buffer-simple "Hello HTTP 2.0! GET request"))))
+			(let (response)
+			  (if (string= (req-header ":method") "post")
+			      (let ((post-str (buffer-string buffer)))
+				(format t "Received POST request, payload: ~A~%" post-str)
+				(setf response (buffer-simple "Hello HTTP 2.0! POST payload: " post-str)))
+			      (progn
+				(format t "Received GET request~%")
+				(setf response (buffer-simple "Hello HTTP 2.0! GET request"))))
 		      
-		      (headers stream `((":status"        . "200")
-					("content-length" . ,(format nil "~D" (buffer-size response)))
-					("content-type"   . "text/plain"))
-			       :end-stream nil)
+			  (headers stream `((":status"        . "200")
+					    ("content-length" . ,(format nil "~D" (buffer-size response)))
+					    ("content-type"   . "text/plain"))
+				   :end-stream nil)
 		      
-		      ; split response into multiple DATA frames
-		      (data stream (buffer-slice! response 0 5) :end-stream nil)
-		      (data stream response))))))))
+					; split response into multiple DATA frames
+			  (data stream (buffer-slice! response 0 5) :end-stream nil)
+			  (data stream response)))))))))
 
     (format t "Entering receive loop~%")
     (receive-loop net conn)
     (format t "Leaving receive loop~%")))
+
+(defmacro def-test-server (name &body body)
+  (with-gensyms (rh)
+    `(defun ,name (&key args)
+       (flet ((,rh (req)) ,@body)
+	 (apply #'example-server :request-handler #',rh args)))))

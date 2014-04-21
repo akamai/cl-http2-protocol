@@ -7,71 +7,68 @@
 ;
 ; - http://tools.ietf.org/html/draft-ietf-httpbis-header-compression
 
-(defparameter *req-defaults*
-  '((":scheme"             . "http")
-    (":scheme"             . "https") 
-    (":host"               . "")
-    (":path"               . "/")
-    (":method"             . "GET")
-    ("accept"              . "")
-    ("accept-charset"      . "")
-    ("accept-encoding"     . "")
-    ("accept-language"     . "")
-    ("cookie"              . "")
-    ("if-modified-since"   . "")
-    ("user-agent"          . "")
-    ("referer"             . "")
-    ("authorization"       . "")
-    ("allow"               . "")
-    ("cache-control"       . "")
-    ("connection"          . "")
-    ("content-length"      . "")
-    ("content-type"        . "")
-    ("date"                . "")
-    ("expect"              . "")
-    ("from"                . "")
-    ("if-match"            . "")
-    ("if-none-match"       . "")
-    ("if-range"            . "")
-    ("if-unmodified-since" . "")
-    ("max-forwards"        . "")
-    ("proxy-authorization" . "")
-    ("range"               . "")
-    ("via"                 . ""))
-  "Default request working set as defined by the spec.")
-
-(defparameter *resp-defaults*
-  '((":status"                     . "200")
-    ("age"                         . "")
-    ("cache-control"               . "")
-    ("content-length"              . "")
-    ("content-type"                . "")
-    ("date"                        . "")
-    ("etag"                        . "")
-    ("expires"                     . "")
-    ("last-modified"               . "")
-    ("server"                      . "")
-    ("set-cookie"                  . "")
-    ("vary"                        . "")
-    ("via"                         . "")
-    ("access-control-allow-origin" . "")
+(defparameter *static-table*
+  '((":authority"                  . "")
+    (":method"                     . "GET")
+    (":method"                     . "POST")
+    (":path"                       . "/")
+    (":path"                       . "/index.html")
+    (":scheme"                     . "http")
+    (":scheme"                     . "https")
+    (":status"                     . "200")
+    (":status"                     . "500")
+    (":status"                     . "404")
+    (":status"                     . "403")
+    (":status"                     . "400")
+    (":status"                     . "401")
+    ("accept-charset"              . "")
+    ("accept-encoding"             . "")
+    ("accept-language"             . "")
     ("accept-ranges"               . "")
+    ("accept"                      . "")
+    ("access-control-allow-origin" . "")
+    ("age"                         . "")
     ("allow"                       . "")
-    ("connection"                  . "")
+    ("authorization"               . "")
+    ("cache-control"               . "")
     ("content-disposition"         . "")
     ("content-encoding"            . "")
     ("content-language"            . "")
+    ("content-length"              . "")
     ("content-location"            . "")
     ("content-range"               . "")
+    ("content-type"                . "")
+    ("cookie"                      . "")
+    ("date"                        . "")
+    ("etag"                        . "")
+    ("expect"                      . "")
+    ("expires"                     . "")
+    ("from"                        . "")
+    ("host"                        . "")
+    ("if-match"                    . "")
+    ("if-modified-since"           . "")
+    ("if-none-match"               . "")
+    ("if-range"                    . "")
+    ("if-unmodified-since"         . "")
+    ("last-modified"               . "")
     ("link"                        . "")
     ("location"                    . "")
+    ("max-forwards"                . "")
     ("proxy-authenticate"          . "")
+    ("proxy-authorization"         . "")
+    ("range"                       . "")
+    ("referer"                     . "")
     ("refresh"                     . "")
     ("retry-after"                 . "")
+    ("server"                      . "")
+    ("set-cookie"                  . "")
     ("strict-transport-security"   . "")
     ("transfer-encoding"           . "")
+    ("user-agent"                  . "")
+    ("vary"                        . "")
+    ("via"                         . "")
     ("www-authenticate"            . ""))
-  "Default response working set as defined by the spec.")
+  "Default working set as defined by the spec.")
 
 ; The set of components used to encode or decode a header set form an
 ; encoding context: an encoding context contains a header table and a
@@ -79,18 +76,10 @@
 
 (defclass encoding-context (error-include)
   ((type :initarg :type)
-   (table :reader table)
-   (limit :initarg :limit :initform 4096)
+   (table :reader table :initform nil)
+   (limit :accessor table-limit :initarg :limit :initform 4096)
    (refset :reader refset :initform (make-array 128 :element-type t :adjustable t :fill-pointer 0)))
   (:documentation "Encoding context: a header table and reference set for one direction"))
-
-(defmethod initialize-instance :after ((encoding-context encoding-context) &key)
-  "Initializes compression context with appropriate client/server
-defaults and maximum size of the header table."
-  (with-slots (table type) encoding-context
-    (setf table (if (eq type :request)
-		    (copy-list *req-defaults*)
-		    (copy-list *resp-defaults*)))))
 
 (defmethod process ((encoding-context encoding-context) cmd)
   "Performs differential coding based on provided command type.
@@ -100,87 +89,106 @@ defaults and maximum size of the header table."
 
       ; indexed representation
       (if (eq (getf cmd :type) :indexed)
-          ; An indexed representation corresponding to an entry not present
-          ; in the reference set entails the following actions:
-          ; - The header corresponding to the entry is emitted.
-          ; - The entry is added to the reference set.
-          ;
-          ; An indexed representation corresponding to an entry present in
-          ; the reference set entails the following actions:
-          ;  - The entry is removed from the reference set.
-          ;
-	  (let* ((idx (getf cmd :name))
-	 	 (cur (position idx refset :key #'car)))
+	  ; An indexed representation with an index value of 0 entails the
+	  ; following actions:
+	  ; - The reference set is emptied.
+	  ;
+	  ; An indexed representation corresponding to an entry not present
+	  ; in the reference set entails the following actions:
+	  ;
+	  ; - If referencing an element of the static table:
+	  ;   - The header field corresponding to the referenced entry is
+	  ;     emitted.
+	  ;
+	  ;   - The referenced static entry is inserted at the beginning of the
+	  ;     header table.
+	  ;
+	  ;   - A reference to this new header table entry is added to the
+	  ;     reference set (except if this new entry didn't fit in the
+	  ;     header table).
+	  ;
+	  ; - If referencing an element of the header table:
+	  ;   - The header field corresponding to the referenced entry is
+	  ;     emitted.
+	  ;
+	  ; - The referenced header table entry is added to the reference
+	  ;   set.
+	  ;
+	  ; An indexed representation corresponding to an entry not present
+	  ; in the reference set entails the following actions:
+	  ; - The header corresponding to the entry is emitted.
+	  ; - The entry is added to the reference set.
+	  ;
+	  ; An indexed representation corresponding to an entry present in
+	  ; the reference set entails the following actions:
+	  ;  - The entry is removed from the reference set.
+	  ; 
+	  (let ((idx (1- (getf cmd :name))))
+	    (if (= idx -1)
+		(setf (fill-pointer refset) 0)
 
-	    (if cur
-		(vector-delete-at refset cur)
-		(progn
-		  (setf emit (elt table idx))
-		  (vector-push-extend (cons idx emit) refset))))
+		(let ((cur (position idx refset :key #'car)))
+		  (if cur
+		      (vector-delete-at refset cur)
+		      (if (>= idx (length table))
+			  (progn
+			    (setf emit (elt *static-table* (- idx (length table))))
+			    (when (size-check encoding-context (list :name (car emit) :value (cdr emit)))
+			      (push emit table)
+			      (loop for r across refset do (incf (car r)))
+			      (vector-push-extend (cons 0 emit) refset)))
+			  (progn
+			    (setf emit (elt table idx))
+			    (vector-push-extend (cons idx emit) refset)))))))
 
-          ; A literal representation that is not added to the header table
-          ; entails the following action:
-          ;  - The header is emitted.
-          ;
-          ; A literal representation that is added to the header table entails
-          ; the following actions:
-          ;  - The header is emitted.
-          ;  - The header is added to the header table, at the location
-          ;    defined by the representation.
-          ;  - The new entry is added to the reference set.
-          ;
-	  (progn
-
+	  ; A literal representation that is not added to the header table
+	  ; entails the following action:
+	  ;  - The header is emitted.
+	  ;
+	  ; A literal representation that is added to the header table entails
+	  ; the following actions:
+	  ;  - The header is emitted.
+	  ;  - The header is inserted at the beginning of the header table.
+	  ;  - A reference to the new entry is added to the reference set
+	  ;    (except if this new entry didn't fit in the header table).
+	  ;
+	  (let ((cmd-copy (copy-tree cmd)))
+	    
 	    (when (integerp (getf cmd :name))
-	      (destructuring-bind (k . v)
-		  (elt table (getf cmd :name))
-
-		(ensuref (getf cmd :index) (getf cmd :name))
-		(ensuref (getf cmd :value) v)
-		(setf (getf cmd :name) k)))
+	      (ensuref (getf cmd :index) (getf cmd :name))
+	      (let* ((idx (1- (getf cmd :index)))
+		     (entry (if (>= idx (length table))
+				(elt *static-table* (- idx (length table)))
+				(elt table idx))))
+		(setf (getf cmd :name) (car entry))
+		(ensuref (getf cmd :value) (cdr entry))))
 
 	    (setf emit (cons (getf cmd :name) (getf cmd :value)))
-
-	    (when (not (eq (getf cmd :type) :noindex))
-	      (when (size-check encoding-context cmd)
-
-		(case (getf cmd :type)
-		  (:incremental
-		   (setf (getf cmd :index) (length table))
-		   (appendf table (list :replace-below)))
-		  (:substitution
-		   (when (null (assoc (getf cmd :index) table :test #'equal))
-		     (raise 'http2-header-expection "invalid index")))
-		  (:prepend
-		   (push emit table)))
-
-		(setf (elt table (getf cmd :index)) emit)
-		(vector-push-extend (cons (getf cmd :index) emit) refset)))))
+	      
+	    (when (eq (getf cmd :type) :incremental)
+	      (when (size-check encoding-context (list :name (car emit) :value (cdr emit)))
+		(push emit table)
+		(loop for r across refset do (incf (car r)))
+		(vector-push-extend (cons 0 emit) refset)))))
       emit)))
 
 (defmethod add-cmd ((encoding-context encoding-context) header)
   "Emits best available command to encode provided header."
   (with-slots (table) encoding-context
     ; check if we have an exact match in header table
-    (when-let (idx (position header table :test #'equal))
+    (when-let (idx (or (position header table :test #'equal)
+		       (awhen (position header *static-table* :test #'equal)
+			 (+ it (length table)))))
       (when (not (activep encoding-context idx))
-	(return-from add-cmd (list :name idx :type :indexed))))
+	(return-from add-cmd (list :name (1+ idx) :type :indexed))))
 
     ; check if we have a partial match on header name
-    (when-let (idx (position (car header) table :key #'car :test #'equal))
-      ; # default to incremental indexing
-      (let ((cmd (list :name idx :value (cdr header) :type :incremental)))
-
-	; TODO: implement literal without indexing strategy
-	; TODO: implement substitution strategy (if it makes sense)
-	; if default? idx
-	;   cmd[:type] = :incremental
-	; else
-	;   cmd[:type] = :substitution
-	;   cmd[:index] = idx
-	; end
-
-	(return-from add-cmd cmd)))
+    (when-let (idx (or (position (car header) table :key #'car :test #'equal)
+		       (awhen (position (car header) *static-table* :key #'car :test #'equal)
+			 (+ it (length table)))))
+      ; default to incremental indexing
+      ; TODO: implement literal without indexing strategy
+      (return-from add-cmd (list :name (1+ idx) :value (cdr header) :type :incremental)))
 
     (list :name (car header) :value (cdr header) :type :incremental)))
 
@@ -205,43 +213,25 @@ entry of the header table is always associated to the index 0."
       ; The addition of a new entry with a size greater than the
       ; SETTINGS_HEADER_TABLE_SIZE limit causes all the entries from the
       ; header table to be dropped and the new entry not to be added to the
-      ; header table.  The replacement of an existing entry with a new entry
-      ; with a size greater than the SETTINGS_HEADER_TABLE_SIZE has the same
-      ; consequences.
+      ; header table.
       (when (> cmdsize limit)
 	(setf table nil)
 	(return-from size-check nil))
 
-      (let ((cur 0))
-	(while (> (+ cursize cmdsize) limit)
-	  (let ((e (pop table)))
-	    
-	    ; When the modification of the header table is the replacement of an
-	    ; existing entry, the replaced entry is the one indicated in the
-            ; literal representation before any entry is removed from the header
-            ; table. If the entry to be replaced is removed from the header table
-            ; when performing the size adjustment, the replacement entry is
-            ; inserted at the beginning of the header table.
-	    (when (and (eq (getf cmd :type) :substitution) (= cur (getf cmd :index)))
-	      (setf (getf cmd :type) :prepend))
+      (while (> (+ cursize cmdsize) limit)
+	(let ((e (shift table)))
+	  (decf cursize (+ (length (car e)) (length (cdr e)) 32))))
 
-	    (decf cursize (+ (length (car e)) (length (cdr e)) 32))))
-
-	t))))
+      t)))
 
 (defmethod activep ((encoding-context encoding-context) idx)
   (with-slots (refset) encoding-context
     (not (null (find idx refset :key #'car :test #'equal)))))
 
-(defmethod defaultp ((encoding-context encoding-context) idx)
-  (with-slots (type) encoding-context
-    (< idx (length (if (eq type :request) *req-defaults* *resp-defaults*)))))
-
 (defparameter *headrep*
   '(:indexed      (:prefix 7 :pattern #x80)
-    :noindex      (:prefix 5 :pattern #x60)
-    :incremental  (:prefix 5 :pattern #x40)
-    :substitution (:prefix 6 :pattern #x00))
+    :noindex      (:prefix 6 :pattern #x40)
+    :incremental  (:prefix 6 :pattern #x00))
   "Header representation as defined by the spec.")
 
 ; Responsible for encoding header key-value pairs using HPACK algorithm.
@@ -303,23 +293,17 @@ entry of the header table is always associated to the index 0."
     (let ((rep (getf *headrep* (getf h :type))))
 
       (if (eq (getf h :type) :indexed)
-	  (progn
-	    (<<integer (getf h :name) (getf rep :prefix)))
+	  (<<integer (getf h :name) (getf rep :prefix))
 
 	  (progn
 	    (if (integerp (getf h :name))
-		(progn
-		  (<<integer (1+ (getf h :name)) (getf rep :prefix)))
+		(<<integer (1+ (getf h :name)) (getf rep :prefix))
 		(progn
 		  (<<integer 0 (getf rep :prefix))
 		  (<<string (getf h :name))))
 	    
-	    (when (eq (getf h :type) :substitution)
-	      (<<integer (getf h :index) 0))
-	    
 	    (if (integerp (getf h :value))
-		(progn
-		  (<<integer (getf h :value) 0))
+		(<<integer (getf h :value) 0)
 		(<<string (getf h :value)))))
 
       ; set header representation pattern on first byte
@@ -328,16 +312,65 @@ entry of the header table is always associated to the index 0."
 
   buffer)
 
+(defmethod split-cookies ((compressor compressor) headers)
+  (if (find "cookie" headers :key #'car :test #'string=)
+      (loop
+	 with new-headers = nil
+	 for header in headers
+	 for (k . v) = header
+	 if (string= k "cookie")
+	 do (dolist (v* (split-if (lambda (c) (or (char= c #\;) (char= c #\Space) (char= c #\Null))) v))
+	      (push (cons k v*) new-headers))
+	 else
+	 do (push header new-headers)
+	 finally (return (nreverse new-headers)))
+      headers))
+
+(defmethod combine ((compress compressor) headers)
+  ; this code is longer than necessary because it optimizes speed and memory for no/few duplicates
+  ; in the case of no duplicates, there is no cons'ing and headers is simply returned with one pass
+  ; as duplicates are found some structures grow, and a second pass is necessary to cons up the structure
+  ; individual header cons's will be reused in the new structure if they are not dup's
+  (loop
+     with dups = nil   ; each entry is a list: the original index integer, followed by all values
+     with dupidx = nil ; each entry is an index integer
+     with l = (length headers)
+     for i below l
+     for current-start on headers
+     for (current-k . current-v) = (car current-start)
+     if (and (not (find i dupidx :test #'=))
+	     (not (string= current-k "set-cookie")))
+     do (loop
+	   for j from (1+ i) below l
+	   for (k . v) in (cdr current-start)
+	   when (string= k current-k)
+	   collect j into js and
+	   collect v into vs
+	   finally (when js
+		     (push (cons i (cons current-v vs)) dups)
+		     (nconc dupidx (cons i js))))
+     finally (return (if dups
+			 (loop
+			    for i below l
+			    for dup = (find i dups :key #'car :test #'=)
+			    for header in headers
+			    if dup
+			    collect (cons (car header) (format nil #.(format nil "~~{~~A~~^~C~~}" #\Null) (cdr dup)))
+			    else
+			    unless (find i dupidx :test #'=)
+			    collect header)
+			 headers))))
+
 (defmethod encode ((compressor compressor) headers)
   "Encodes provided list of HTTP headers."
   (with-slots (cc) compressor
     (let ((buffer (make-instance 'buffer))
 	  (commands nil))
-
+    
       ; Literal header names MUST be translated to lowercase before
       ; encoding and transmission.
       ; (setf headers (mapcar (lambda (h) (cons (string-downcase (car h)) (cdr h))) headers))
-    
+
       ; Generate remove commands for missing headers
       (loop
 	 for (idx . (wk . wv)) across (refset cc)
@@ -357,6 +390,9 @@ entry of the header table is always associated to the index 0."
 		     (buffer<< buffer x))))
 
       buffer)))
+
+(defmethod encode-with-ordering ((compressor compressor) headers)
+  (split-cookies compressor (combine compressor headers)))
 
 (defclass decompressor ()
   ((cc-type :initarg :type)
@@ -385,7 +421,13 @@ entry of the header table is always associated to the index 0."
 
 (defmethod @string ((decompressor decompressor) buf)
   "Decodes string value from provided buffer."
-  (buffer-string (buffer-read buf (@integer decompressor buf 0))))
+  (let* ((peek (buffer-getbyte buf nil))
+	 (huffman-p (logbitp 7 peek))
+	 (length (@integer decompressor buf 7))
+	 (bytes (buffer-read buf length)))
+    (if huffman-p
+	(huffman-decode-buffer-to-string bytes length)
+	(buffer-string bytes))))
 
 (defmethod header ((decompressor decompressor) buf &optional header)
   "Decodes header command from provided buffer."
@@ -404,14 +446,9 @@ entry of the header table is always associated to the index 0."
 
       (setf (getf header :name) (@integer decompressor buf (getf type :prefix)))
       (when (not (eq (getf header :type) :indexed))
-	(decf (getf header :name) 1)
-	 
-	(when (= (getf header :name) -1)
+	(when (zerop (getf header :name))
 	  (setf (getf header :name) (@string decompressor buf)))
 
-	(when (eq (getf header :type) :substitution)
-	  (setf (getf header :index) (@integer decompressor buf 0)))
-	 
 	(setf (getf header :value) (@string decompressor buf)))
 
       header)))

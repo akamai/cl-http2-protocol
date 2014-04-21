@@ -101,12 +101,6 @@ Set KEY-NAME and VALUE-NAME appropriately for each iteration."
      (apply (function ,(caar body)) ,@(cdar body) args-to-be-applied)
      ,@(cdr body)))
 
-(defmacro raise (error-type &optional error-msg &rest error-args)
-  "Convenience macro to raise an exception of ERROR-TYPE with ERROR-MSG and optional ERROR-ARGS."
-  `(error (make-condition ,error-type
-			  :format-control ,error-msg
-			  :format-arguments (list ,@error-args))))
-
 (defmacro pack (control values)
   "A macro that expands into code to pack VALUES into bytes per the template in CONTROL.
 CONTROL is a string of characters which can be of these:
@@ -210,6 +204,15 @@ C - character"
 		 (,position (the fixnum 0)))
 	     ,@(first sets)
 	     ,value)))))
+
+
+(defun split-if (predicate string)
+  "Split STRING on delimiter groups wherein each character is true for function PREDICATE."
+  (loop
+     for beg = 0 then (position-if-not predicate string :start (1+ end))
+     for end = (position-if predicate string :start beg)
+     collect (subseq string beg end)
+     while end))
 
 (defvar *debug-mode* t)
 

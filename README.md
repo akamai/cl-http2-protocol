@@ -5,7 +5,7 @@ What This Is
 ------------
 
 This is [HTTP/2.0
-draft-06](http://tools.ietf.org/html/draft-ietf-httpbis-http2-06)
+draft-09](http://tools.ietf.org/html/draft-ietf-httpbis-http2-09)
 [interopability test
 code](https://github.com/http2/http2-spec/wiki/Implementations)
 written in Common Lisp. It has only been tested against SBCL 1.1.8.0
@@ -13,7 +13,7 @@ on x86, but it should be possible to make it work on other Common Lisp
 implementations, subject to some editing in util.lisp.
 
 The code offers a pure Common Lisp transport agnostic implementation
-of the HTTP 2.0 protocol at draft-06. An example client and server are
+of the HTTP 2.0 protocol at draft-09. An example client and server are
 included for a "Hello, World" style test, which employ TLS using
 `CL+SSL` and OpenSSL. For unencrypted communication (a.k.a. plain or
 direct), code using `USOCKET` is included (on SBCL, another option is
@@ -38,8 +38,8 @@ Support for:
 
 Current implementation (see [HPBN chapter for HTTP 2.0 overview](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html)), is based on:
 
-* [draft-ietf-httpbis-http2-06](http://tools.ietf.org/html/draft-ietf-httpbis-http2-06)
-* [draft-ietf-httpbis-header-compression-03](http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-03)
+* [draft-ietf-httpbis-http2-09](http://tools.ietf.org/html/draft-ietf-httpbis-http2-09)
+* [draft-ietf-httpbis-header-compression-05](http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-05)
 
 Copyright
 ---------
@@ -61,14 +61,18 @@ Copyright
 Notes on Port
 -------------
 
-This code began life as a port from the [Ruby interopability
-code](https://github.com/igrigorik/http-2) written by Ilya Grigorik
-released under MIT license. This code may or may not track changes to
-Ilya's code, depending on how quickly we move forward to later draft
-iterations, etc. The port was done line-by-line so currently the
-structure, comments, and techniques closely follow along. Some port
-notes sprinkled in the code discuss choices or notes about the
-port. For the most part, the major differences are:
+This code began life as a port from the
+[Ruby interopability code](https://github.com/igrigorik/http-2)
+written by Ilya Grigorik released under MIT license. This code may or
+may not track changes to Ilya's code, depending on how quickly we move
+forward to later draft iterations, etc. At the time of writing, this
+code has been improved beyond the original port to meet a newer draft
+specification (draft-09).
+
+The port was done line-by-line so currently the structure, comments,
+and techniques closely follow along. Some port notes sprinkled in the
+code discuss choices or notes about the port. For the most part, the
+major differences are:
 
 * util.lisp defines several general purpose forms that give us some
   capabilities similar to calls in Ruby as well as convenience calls.
