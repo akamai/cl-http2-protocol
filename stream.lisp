@@ -119,7 +119,7 @@ control window size."
 		       :flags (nreverse flags)
 		       :payload headers))))
 
-(defmethod stream-promise ((stream stream) headers &optional (end-push-promise t) block) ; ***
+(defmethod promise ((stream stream) headers &optional (end-push-promise t) block)
   (when (null block)
     (error "must provide callback"))
 

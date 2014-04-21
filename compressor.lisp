@@ -152,14 +152,16 @@
 	  ;  - A reference to the new entry is added to the reference set
 	  ;    (except if this new entry didn't fit in the header table).
 	  ;
-	  (progn
-	    (when (eq (getf cmd :type) :incremental)
-	      (when (integerp (getf cmd :name))
-		(setf (getf cmd :index) (1- (getf cmd :name)))
-		(let ((replacement (car (if (>= (getf cmd :index) (length table))
-					    (elt *static-table* (- (getf cmd :index) (length table)))
-					    (elt table (getf cmd :index))))))
-		  (setf (getf cmd :name) replacement))))
+	  (let ((cmd-copy (copy-tree cmd)))
+	    
+	    (when (integerp (getf cmd :name))
+	      (ensuref (getf cmd :index) (getf cmd :name))
+	      (let* ((idx (1- (getf cmd :index)))
+		     (entry (if (>= idx (length table))
+				(elt *static-table* (- idx (length table)))
+				(elt table idx))))
+		(setf (getf cmd :name) (car entry))
+		(ensuref (getf cmd :value) (cdr entry))))
 
 	    (setf emit (cons (getf cmd :name) (getf cmd :value)))
 	      
@@ -167,7 +169,7 @@
 	      (when (size-check encoding-context (list :name (car emit) :value (cdr emit)))
 		(push emit table)
 		(loop for r across refset do (incf (car r)))
-		(vector-push-extend (cons (getf cmd :index) emit) refset)))))
+		(vector-push-extend (cons 0 emit) refset)))))
       emit)))
 
 (defmethod add-cmd ((encoding-context encoding-context) header)
@@ -186,8 +188,7 @@
 			 (+ it (length table)))))
       ; default to incremental indexing
       ; TODO: implement literal without indexing strategy
-      (let ((cmd (list :name (1+ idx) :value (cdr header) :type :incremental)))
-	(return-from add-cmd cmd)))
+      (return-from add-cmd (list :name (1+ idx) :value (cdr header) :type :incremental)))
 
     (list :name (car header) :value (cdr header) :type :incremental)))
 
@@ -421,11 +422,11 @@ entry of the header table is always associated to the index 0."
 (defmethod @string ((decompressor decompressor) buf)
   "Decodes string value from provided buffer."
   (let* ((peek (buffer-getbyte buf nil))
-	 (huffman-p (logand peek 128))
+	 (huffman-p (logbitp 7 peek))
 	 (length (@integer decompressor buf 7))
 	 (bytes (buffer-read buf length)))
     (if huffman-p
-	(huffman-decode bytes length)
+	(huffman-decode-buffer-to-string bytes length)
 	(buffer-string bytes))))
 
 (defmethod header ((decompressor decompressor) buf &optional header)

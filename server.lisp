@@ -22,7 +22,7 @@
   (with-slots (push-enabled) connection
     (setf push-enabled (if (= value 1) t nil))))
 
-(defmethod promise ((server server) &rest args &aux (callback (shift args)))
+(defmethod server-promise ((server server) &rest args &aux (callback (shift args)))
   "Handle locally initiated server-push event emitted by the stream."
   (destructuring-bind (parent headers flags) args
     (when (with-simple-restart (abort-promise "Abort the promise")
@@ -33,8 +33,8 @@
       (let ((promise (new-stream server :parent parent)))
 	(send promise (list :type :push-promise
 			    :flags flags
-			    :stream (id parent)
-			    :promise-stream (id promise)
+			    :stream (stream-id parent)
+			    :promise-stream (stream-id promise)
 			    :payload headers))
 
 	(funcall callback promise)))))

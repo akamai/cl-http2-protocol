@@ -387,7 +387,7 @@ connection management callbacks."
       (once stream :active (lambda-ignore (incf active-stream-count)))
       (once stream :close  (lambda-ignore (decf active-stream-count)))
       (when (typep connection 'server)
-	(on stream :promise (lambda-apply (promise connection))))
+	(on stream :promise (lambda-apply (server-promise connection))))
       (on stream :frame (lambda-apply (send connection)))
 
       (setf (gethash id streams) stream))))

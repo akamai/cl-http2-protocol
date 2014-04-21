@@ -6,8 +6,8 @@
 
 (defpackage :cl-http2-protocol-util
   (:nicknames :http2-util)
-  (:documentation "Package of language utils")
-  (:use :cl :alexandria :babel)
+  (:documentation "Basic utilities")
+  (:use :cl :alexandria :anaphora :babel)
   (:export #:defalias #:shift #:unshift #:while #:while-let
 	   #:ensuref #:deletef-if #:to-sym #:string-to-bytes
 	   #:flatten-n #:reverse-plist #:dohash
@@ -19,7 +19,7 @@
 (defpackage :cl-http2-protocol
   (:nicknames :http2)
   (:documentation "HTTP/2.0 draft-06 implementation.")
-  (:use :cl :alexandria :babel :http2-util)
+  (:use :cl :alexandria :anaphora :babel :http2-util)
   (:shadow #:stream #:stream-error)
   (:export #:http2-error #:http2-not-started #:http2-handshake-error
 	   #:http2-protocol-error #:http2-compression-error
@@ -51,6 +51,6 @@
 (defpackage :cl-http2-protocol-example
   (:nicknames :http2-example)
   (:documentation "HTTP/2.0 draft-06 simple example client/server.")
-  (:use :cl :alexandria :babel :puri :usocket :cl+ssl :http2-util :http2)
+  (:use :cl :alexandria :anaphora :babel :puri :usocket :cl+ssl :http2-util :http2)
   (:export #:example-client #:example-server
 	   #:*dump-bytes* #:*dump-bytes-stream* #:*dump-bytes-hook*))

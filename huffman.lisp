@@ -1,3 +1,5 @@
+; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+
 (in-package :cl-http2-protocol)
 
 (defparameter *huffman-request*
@@ -259,29 +261,78 @@
     (255 #*11111111111111111111011011 26 #x3ffffdb)
     (256 #*11111111111111111111011100 26 #x3ffffdc :eos)))
 
-(defun huffman-decode (buffer length)
+(defun byte-vector-to-bit-vector (bytes length)
+  "Create a vector of type BIT from a vector of type (UNSIGNED-BYTE 8)."
+  ; seems like there should be implementation-specific fast ways of doing this...
   (loop
-     with bits = (loop
-		    with x = (make-array (* length 8) :element-type 'bit)
-		    for c across (buffer-data buffer)
-		    repeat length
-		    for i from 0 by 8
-		    do (loop
-			  for b downfrom 7 to 0
-			  for j = i then (1+ j)
-			  do (setf (bit x j) (ldb (byte 1 b) c)))
-		    finally (return x))
-     with data = (make-array length :element-type '(unsigned-byte 8))
+     with data = (make-array (* length 8) :element-type 'bit)
+     for c across bytes
+     repeat length
+     for i from 0 by 8
+     do (loop
+	   for b downfrom 7 to 0
+	   for j = i then (1+ j)
+	   do (setf (bit data j) (ldb (byte 1 b) c)))
+     finally (return data)))
+
+(defun huffman-decode (array input-length)
+  "Huffman decode by multiple passes on the huffman table."
+  (declare (fixnum input-length))
+  (loop
+     with bit-input-length = (* input-length 8)
+     with bits = (byte-vector-to-bit-vector array input-length)
+     with data = (make-array (* input-length 3) :element-type '(unsigned-byte 8) :fill-pointer 0)
      with bp = 0
-     for a below length
+     while (<= bp bit-input-length)
      for c = (loop
 		for n from 4 to 27
+		for bpn from (+ bp 4) to (+ bp 27)
+		while (<= bpn bit-input-length)
 		for d = (find-if (lambda (h)
 				   (and (= n (third h))
-					(not (mismatch (second h) bits :start2 bp :end2 (+ bp n)))))
+					(not (mismatch (second h) bits :start2 bp :end2 bpn))))
 				 *huffman-request*)
 		if d do (progn
 			  (incf bp n)
 			  (return (first d))))
-     do (setf (aref data a) c)
-     finally (return (babel:octets-to-string data))))
+     if c
+     do (vector-push-extend c data)
+     else
+     do (loop-finish)
+     finally (return (values data (- bit-input-length bp)))))
+
+(defun huffman-decode-buffer-to-string (buffer input-length)
+  (babel:octets-to-string (huffman-decode (buffer-data buffer) input-length)))
+
+#|
+(defun huffman-tree (hlist n)
+  (if (> n 27)
+      nil
+      (let ((hlist* (remove-if-not (lambda (h) (< n (third h))) hlist)))
+	(if (null hlist*)
+	    (car hlist)
+	    (list (huffman-tree (remove-if-not (lambda (h) (= (aref (second h) n) 0)) hlist*) (1+ n))
+		  (huffman-tree (remove-if-not (lambda (h) (= (aref (second h) n) 1)) hlist*) (1+ n)))))))
+
+(defun tree-to-code (tree)
+  (if (integerp (first tree))
+      `(yield-byte ,(first tree))
+      `(if (next-bit-zero)
+	   ,(tree-to-code (first tree))
+	   ,(tree-to-code (second tree)))))
+
+(defmacro huffman-decode-maker ()
+  `(defun huffman-decode (array length)
+     (loop
+	with bits = (byte-vector-to-bit-vector array length)
+	with data = (make-array length :element-type '(unsigned-byte 8))
+	with bp = -1
+	with dp = -1
+	while (< dp (* length 8))
+	do (macrolet ((next-bit-zero () `(zerop (aref bits (incf bp))))
+		      (yield-byte (c) (if (< c 256) `(setf (aref data (incf dp)) ,c) `(return))))
+	     ,(tree-to-code (huffman-tree *huffman-request* 0))))))
+
+; causes stack overflow or some such
+(huffman-decode-maker)
+|#

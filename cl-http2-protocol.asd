@@ -16,6 +16,7 @@ For other implementations, see: https://github.com/http2/http2-spec/wiki/Impleme
   :author "Martin Flack"
   :licence "MIT"
   :depends-on (:alexandria
+	       :anaphora
 	       :babel
 	       :puri
 	       :usocket
@@ -28,7 +29,8 @@ For other implementations, see: https://github.com/http2/http2-spec/wiki/Impleme
 	       (:file "emitter" :depends-on ("util"))
 	       (:file "connection" :depends-on ("util" "error" "flow-buffer" "emitter" "error" "buffer"))
 	       (:file "framer" :depends-on ("util" "error" "buffer"))
-	       (:file "compressor" :depends-on ("util" "error" "buffer"))
+	       (:file "huffman" :depends-on ("util" "error" "buffer"))
+	       (:file "compressor" :depends-on ("util" "error" "buffer" "huffman"))
 	       (:file "stream" :depends-on ("util" "error" "flow-buffer" "emitter" "error" "buffer"))
 	       (:file "client" :depends-on ("util" "connection" "compressor" "stream"))
 	       (:file "server" :depends-on ("util" "error" "connection" "compressor" "stream"))
