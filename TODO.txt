@@ -1,2 +1,3 @@
 TODO:
--- update to draft-09
+-- update to draft-10
+-- issue INADEQUATE_SECURITY correctly

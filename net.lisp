@@ -27,7 +27,7 @@
 (defparameter *server-key-file* (merge-pathnames "mykey.pem" *key-pathname*))
 (defparameter *server-cert-file* (merge-pathnames "mycert.pem" *key-pathname*))
 
-(defparameter *next-protos-spec* '("HTTP-draft-09/2.0"))
+(defparameter *next-protos-spec* '("h2-10"))
 
 (defparameter *dump-bytes* t)
 (defparameter *dump-bytes-stream* t)

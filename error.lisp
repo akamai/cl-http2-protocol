@@ -53,6 +53,9 @@ cannot be opened."))
 (define-condition http2-push-disabled (http2-error-recoverable) ()
   (:documentation "Raised if peer has disabled push on this connection and a push is requested."))
 
+(define-condition http2-inadequate-security (http2-error-recoverable) ()
+  (:documentation "Raised if peer does not meet TLS requirements."))
+
 (defmacro raise (error-type &optional error-msg &rest error-args)
   "Convenience macro to raise an exception of ERROR-TYPE with ERROR-MSG and optional ERROR-ARGS.
 If the error is a recoverable HTTP2 error, a restart is installed to continue from the RAISE."

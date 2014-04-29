@@ -71,17 +71,14 @@ new streams for current connection."
   "Issue ENHANCE_YOUR_CALM to peer."
   (goaway :error :enhance-your-calm))
 
-(defmethod settings ((connection connection) &optional
-		     (stream-limit (slot-value connection 'stream-limit))
-		     (window-limit (slot-value connection 'window-limit)))
-  "Sends a connection SETTINGS frame to the peer. Setting window size
-to +INFINITY disables flow control."
-  (with-slots (window) connection
-    (let ((payload (list :settings-max-concurrent-streams stream-limit)))
-      (if (eql window +infinity)
-	  (setf (getf payload :settings-flow-control-options) 1)
-	  (setf (getf payload :settings-initial-window-size) window-limit))
-      (send connection (list :type :settings :stream 0 :payload (reverse-plist payload))))))
+(defmethod settings ((connection connection)
+		     &optional
+		       (stream-limit (slot-value connection 'stream-limit))
+		       (window-limit (slot-value connection 'window-limit)))
+  "Sends a connection SETTINGS frame to the peer."
+  (send connection (list :type :settings :stream 0
+			 :payload (list :settings-max-concurrent-streams stream-limit
+					:settings-initial-window-size window-limit))))
 
 ; these have to appear here to compile (receive connection ...) properly
 (defgeneric receive (obj data))
@@ -273,7 +270,6 @@ frame addressed to stream ID = 0."
 	 (:settings
 	  (connection-settings connection frame))
 	 (:window-update
-	  (flow-control-allowed-p connection)
 	  (incf window (getf frame :increment))
 	  (send-data connection nil t))
 	 (:ping
@@ -327,7 +323,6 @@ frame addressed to stream ID = 0."
 ; the flow control window to become positive.
 (defmethod connection-setting ((connection connection) (key (eql :settings-initial-window-size)) value)
   (with-slots (window window-limit streams) connection
-    (flow-control-allowed-p connection)
     (setf window (+ (- window window-limit) value))
     (dohash (id stream streams)
       (emit stream :window (+ (- (stream-window stream) window-limit) value)))
@@ -336,13 +331,6 @@ frame addressed to stream ID = 0."
 (defmethod connection-setting ((connection connection) (key (eql :settings-max-concurrent-streams)) value)
   (with-slots (stream-limit) connection
     (setf stream-limit value)))
-
-(defmethod connection-setting ((connection connection) (key (eql :settings-flow-control-options)) value)
-  (with-slots (window window-limit) connection
-    (flow-control-allowed-p connection)
-    (when (= value 1)
-      (setf window +infinity
-	    window-limit +infinity))))
 
 (defmethod decode-headers ((connection connection) frame)
   "Decode headers payload and update connection decompressor state.
@@ -354,22 +342,16 @@ or an END_PROMISE flag is seen."
       (progn
 	(with-slots (decompressor) connection
 	  (when (not (vectorp (getf frame :payload)))
-	    (setf (getf frame :payload) (decode decompressor (getf frame :payload))))))
-    (t (e) (connection-error connection :type :compression-error :msg e)))) ; ***
+	    (setf (getf frame :payload) (postprocess decompressor (decode decompressor (getf frame :payload)))))))
+    (t (e) (connection-error connection :type :compression-error :msg e))))
 
 (defmethod encode-headers ((connection connection) frame)
   "Encode headers payload and update connection compressor state."
   (handler-case-unless *debug-mode*
       (with-slots (compressor) connection
 	(when (not (vectorp (getf frame :payload)))
-	  (setf (getf frame :payload) (encode compressor (getf frame :payload)))))
+	  (setf (getf frame :payload) (encode compressor (preprocess compressor (getf frame :payload))))))
     (t (e) (connection-error connection :type :compression-error :msg e))))
-
-(defmethod flow-control-allowed-p ((connection connection))
-  "Once disabled, no further flow control operations are permitted."
-  (with-slots (window-limit) connection
-    (when (= window-limit +infinity)
-      (connection-error connection :type :flow-control-error))))
 
 (defmethod activate-stream ((connection connection) id priority &optional parent)
   "Activates new incoming or outgoing stream and registers appropriate

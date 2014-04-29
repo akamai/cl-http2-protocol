@@ -77,18 +77,6 @@ Set KEY-NAME and VALUE-NAME appropriately for each iteration."
 	    (unless ,value-present (return nil))
 	    ,@body)))))
 
-(defconstant +infinity
-  #+sbcl sb-ext:double-float-positive-infinity
-  #+(or abcl cmu scl) ext:double-float-positive-infinity
-  #+allegro excl::*infinity-double*
-  #+ecl si:double-float-positive-infinity)
-
-(defconstant -infinity
-  #+sbcl sb-ext:double-float-negative-infinity
-  #+(or abcl cmu scl) ext:double-float-negative-infinity
-  #+allegro excl::*negative-infinity-double*
-  #+ecl si:double-float-negative-infinity)
-
 (defmacro lambda-ignore (&body body)
   "Convenience macro to make a LAMBDA form that ignores its arguments."
   `(lambda (&rest args-to-be-ignored)

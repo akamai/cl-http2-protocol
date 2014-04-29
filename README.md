@@ -400,18 +400,6 @@ when to emit window updates:
 (window-update stream 2048) ; increment stream window by 2048 bytes
 ```
 
-Alternatively, flow control can be disabled by emitting an appropriate
-settings frame on the connection:
-
-```lisp
-; limit the number of concurrent streams to 100 and disable flow control
-(settings conn :streams 100 :window +infinity)
-```
-
-The symbol `+INFINITY` is defined in util.lisp and should be a symbol
-macro for IEEE floating point positive infinity on your CL
-implementation.
-
 Server push
 -----------
 
