@@ -14,7 +14,9 @@
 	   #:+infinity #:-infinity
 	   #:lambda-ignore #:lambda-apply
 	   #:pack #:unpack #:split-if
-	   #:*debug-mode* #:handler-case-unless))
+	   #:*debug-mode* #:*debug-stream*
+	   #:handler-case-unless
+	   #:report-error))
 
 (defpackage :cl-http2-protocol
   (:nicknames :http2)

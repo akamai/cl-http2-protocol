@@ -9,7 +9,7 @@
   "Default stream priority (lower values are higher priority)")
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defparameter *connection-header*
+  (defparameter *connection-preface*
     (buffer-simple (concatenate 'string "PRI * HTTP/2.0" #1='(#\Return #\Linefeed) #1# "SM" #1# #1#))
     "Default connection \"fast-fail\" preamble string as defined by the spec"))
 
@@ -100,15 +100,15 @@ stream frames are passed to appropriate stream objects."
 	; Client connection header is 24 byte connection header followed by
 	; SETTINGS frame. Server connection header is SETTINGS frame only.
 	(when (eq state :new)
-	  (if (< (buffer-size recv-buffer) #.(buffer-size *connection-header*))
+	  (if (< (buffer-size recv-buffer) #.(buffer-size *connection-preface*))
 	      (if (buffer-mismatch recv-buffer
-				   *connection-header*
+				   *connection-preface*
 				   :end2 (buffer-size recv-buffer))
 		  (raise :http2-handshake-error)
 		  (return-from receive))
-	      (if (buffer-mismatch (buffer-read recv-buffer #.(buffer-size *connection-header*))
-				   *connection-header*
-				   :end1 #.(buffer-size *connection-header*))
+	      (if (buffer-mismatch (buffer-read recv-buffer #.(buffer-size *connection-preface*))
+				   *connection-preface*
+				   :end1 #.(buffer-size *connection-preface*))
 		  (raise :http2-handshake-error)
 		  (progn
 		    (setf state :connection-header)
@@ -200,14 +200,13 @@ stream frames are passed to appropriate stream objects."
 		   (when (null parent)
 		     (connection-error connection :msg "missing parent ID"))
 
-		   (if (not (or (eq (state parent) :open)
-				(eq (state parent) :half-closed-local)))
+		   (if (not (member (stream-state parent) '(:open :half-closed-local)))
 		       ; An endpoint might receive a PUSH_PROMISE frame after it sends
 		       ; RST_STREAM.  PUSH_PROMISE causes a stream to become "reserved".
 		       ; The RST_STREAM does not cancel any promised stream.  Therefore, if
 		       ; promised streams are not desired, a RST_STREAM can be used to
 		       ; close any of those streams.
-		       (if (eq (closed parent) :local-rst)
+		       (if (eq (stream-closed parent) :local-rst)
 			   ; We can either (a) 'resurrect' the parent, or (b) RST_STREAM
 			   ; ... sticking with (b), might need to revisit later.
 			   (send connection (list :type :rst-stream :stream pid :error :refused-stream))

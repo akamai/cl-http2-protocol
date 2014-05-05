@@ -203,6 +203,7 @@ C - character"
      while end))
 
 (defvar *debug-mode* t)
+(defvar *debug-stream* t)
 
 (defmacro handler-case-unless (var expression &body clauses)
   "Expands into code that gives two paths, depending on the run-time value of a variable.
@@ -215,3 +216,13 @@ A global such as *debug-mode* can be used throughout as the variable."
 	   (handler-case
 	       (,fn)
 	     ,@clauses)))))
+
+(defun report-error (e)
+  (format *debug-stream* "Error: ~A " (type-of e))
+  (if (typep e 'simple-condition)
+      (progn
+	(apply #'format *debug-stream*
+	       (simple-condition-format-control e)
+	       (simple-condition-format-arguments e))
+	(format *debug-stream* "~%"))
+      (format *debug-stream* "~A~%" e)))

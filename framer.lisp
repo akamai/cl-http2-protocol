@@ -123,7 +123,7 @@
 	       if (logbitp pos flags) collect name))
 
       (setf (getf frame :stream) (logand stream *uint32-msb-reserved*)))
-    (format t "http2 frame: ~A~%" (subseq (buffer-data buf) 0 (getf frame :length)))
+    ; (format t "http2 frame: ~A~%" (subseq (buffer-data buf) 0 (getf frame :length)))
     frame))
 
 (defmethod generate ((framer framer) frame)

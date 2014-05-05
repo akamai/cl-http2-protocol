@@ -27,7 +27,7 @@
 (defparameter *server-key-file* (merge-pathnames "mykey.pem" *key-pathname*))
 (defparameter *server-cert-file* (merge-pathnames "mycert.pem" *key-pathname*))
 
-(defparameter *next-protos-spec* '("h2-10"))
+(defparameter *next-protos-spec* '("h2-12"))
 
 (defparameter *dump-bytes* t)
 (defparameter *dump-bytes-stream* t)
@@ -40,7 +40,9 @@
   (:documentation "Abstraction for multiple network implementations"))
 
 
-(defclass net-ssl (net) ()
+(defclass net-ssl (net)
+  ((cert-file :initarg :cert-file :initform *server-cert-file*)
+   (key-file :initarg :key-file :initform *server-key-file*))
   (:documentation "CL+SSL wrapping USOCKET"))
 
 (defmethod net-socket-listen ((net net-ssl) host port)
@@ -56,11 +58,11 @@
     (setf raw-socket (socket-accept listener))))
 
 (defmethod net-socket-prepare-server ((net net-ssl))
-  (with-slots (raw-socket socket) net
+  (with-slots (raw-socket socket key-file cert-file) net
     (setf socket (cl+ssl:make-ssl-server-stream
 		  (stream-fd (socket-stream raw-socket))
-		  :key (namestring *server-key-file*)
-		  :certificate (namestring *server-cert-file*)
+		  :key (namestring key-file)
+		  :certificate (namestring cert-file)
 		  :close-callback (lambda-ignore (socket-close raw-socket))
 		  :next-protos-spec *next-protos-spec*))
     (let ((npn (cl+ssl::get-next-proto-negotiated socket)))
@@ -275,11 +277,7 @@
 	   (handler-case-unless *debug-mode*
 	       (connection<< conn bytes)
 	     (t (e)
-		(format t "~S~%" e)
-		(when (typep e 'simple-condition)
-		  (apply #'format t
-			 (concatenate 'string "(" (simple-condition-format-control e) ")~%")
-			 (simple-condition-format-arguments e)))
+		(report-error e)
 		(net-socket-close net)))))
     (end-of-file () ; this is how to leave the loop
       nil)))

@@ -34,12 +34,13 @@ Buffered DATA frames are emitted in FIFO order."
     (when frame
       (push frame send-buffer))
     (while (and (plusp window) send-buffer)
-      (let ((frame (shift send-buffer))
-	    (sent 0)
-	    (frame-size (buffer-size (getf frame :payload))))
+      (setf frame (shift send-buffer))
+      (let ((frame-size (buffer-size (getf frame :payload)))
+	    (sent 0))
 	(if (> frame-size window)
-	    (let* ((payload (remf frame :payload))
-		   (chunk (copy-list frame))) ; dup***
+	    (let* ((payload (prog1 (getf frame :payload)
+			      (remf frame :payload)))
+		   (chunk (copy-tree frame)))
 	      (setf (getf frame :payload) (buffer-slice! payload 0 window))
 	      (setf (getf chunk :length) (buffer-size payload))
 	      (setf (getf chunk :payload) payload)

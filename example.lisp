@@ -74,20 +74,26 @@
       (receive-loop net conn))))
 
 (defun example-server (&key (interface "0.0.0.0") (port 8080)
-			 (net nil net-arg-p) (secure nil secure-arg-p)
+			 (net nil net-arg-p) net-options (secure nil secure-arg-p)
 			 request-handler)
   (assert (or (not net-arg-p) (not secure-arg-p)) (net secure) "Provide either :NET or :SECURE")
-  (ensuref net (make-instance (if secure
-				  'net-ssl
-				  #+sbcl 'net-plain-sb-bsd-sockets
-				  #-sbcl 'net-plain-usocket)))
+  (ensuref net (apply #'make-instance (if secure
+					  'net-ssl
+					  #+sbcl 'net-plain-sb-bsd-sockets
+					  #-sbcl 'net-plain-usocket)
+		      net-options))
   (assert (typep net 'net) (net) ":NET object must be of type NET")
   (handler-case
       (progn
 	(format t "Starting server on port ~D~%" port)
 	(net-socket-listen net interface port)
 	(unwind-protect
-	     (loop (example-server-inner net request-handler))
+	     (loop
+		(handler-case-unless *debug-mode*
+		    (example-server-inner net request-handler)
+		  (t (e)
+		     (report-error e)
+		     (net-socket-close net))))
 	  (net-socket-close net)
 	  (net-socket-shutdown net)))
     (address-in-use-error ()
