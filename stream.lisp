@@ -119,11 +119,11 @@ control window size."
 		       :flags (nreverse flags)
 		       :payload headers))))
 
-(defmethod promise ((stream stream) headers &optional (end-push-promise t) block)
+(defmethod promise ((stream stream) headers &optional (end-headers t) block)
   (when (null block)
     (error "must provide callback"))
 
-  (let ((flags (if end-push-promise (list :end-push-promise) nil)))
+  (let ((flags (if end-headers (list :end-headers) nil)))
     (emit stream :promise stream headers flags block)))
 
 (defmethod reprioritize ((stream stream) p)

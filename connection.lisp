@@ -136,10 +136,7 @@ stream frames are passed to appropriate stream objects."
 
 	      (remf frame :length)
 	      (setf (getf frame :payload) headers)
-	      (push (if (eq (getf frame :type) :push-promise)
-			:end-push-promise
-			:end-headers)
-		    (getf frame :flags))))
+	      (push :end-headers (getf frame :flags))))
 
 	  ; SETTINGS frames always apply to a connection, never a single stream.
 	  ; The stream identifier for a settings frame MUST be zero.  If an
@@ -175,8 +172,8 @@ stream frames are passed to appropriate stream objects."
 		   (stream<< stream frame)))
 		(:push-promise
 		 ; The last frame in a sequence of PUSH_PROMISE/CONTINUATION
-		 ; frames MUST have the END_PUSH_PROMISE/END_HEADERS flag set
-		 (when (not (member :end-push-promise (getf frame :flags)))
+		 ; frames MUST have the END_HEADERS flag set
+		 (when (not (member :end-headers (getf frame :flags)))
 		   (push frame continuation)
 		   (return-from receive))
 	     

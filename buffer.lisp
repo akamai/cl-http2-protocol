@@ -193,6 +193,27 @@ is done ignoring errors, so it may bail and use the raw bytes."
   "Modifies BUFFER by concatenating the contents of BUFFER2 to BUFFER, and returns BUFFER."
   (buffer<< buffer (buffer-data buffer2)))
 
+; a BUFFER<< call that has (PACK ...) as its parameter will be written to a PACK call
+; using the BUFFER-DATA array directly, instead of creating a temporary array which
+; is then appended onto the BUFFER-DATA array
+;
+; e.g.
+;  (BUFFER<< BUFFER (PACK *UINT32* NUM))
+; becomes
+;  (LET ((#:G (BUFFER-DATA BUFFER)))
+;    (PACK *UINT32* NUM :ARRAY #:G :START (FILL-POINTER #:G))
+;
+; ...which is slightly faster because a temporary array is not created, but rather the
+; bytes are being added by the PACK maco directly into the BUFFER-DATA
+;
+(define-compiler-macro buffer<< (&whole whole buffer thing)
+  (if (and (listp thing) (eq (car thing) 'pack))
+      (with-gensyms (data)
+	`(let ((,data (buffer-data ,buffer)))
+	   ,(append thing `(:array ,data :start (fill-pointer ,data)))
+	   ,buffer))
+      whole))
+
 (defun buffer-simple (&rest items)
   "Create a new BUFFER object and populate it with contents of each of ITEMS.
 Each of ITEMS may be another BUFFER, a vector of bytes, a string, or an integer 0-255."
@@ -261,6 +282,11 @@ Returns a new buffer containing the deleted bytes."
   "Modifies BUFFER by removing 4 bytes from the front, and returning them as a 32-bit integer.
 The bytes are assumed to be in network order in the buffer."
   (unpack "N" (buffer-data (buffer-read buffer 4))))
+
+(defmethod buffer-read-uint16 ((buffer buffer))
+  "Modifies BUFFER by removing 2 bytes from the front, and returning them as a 16-bit integer.
+The bytes are assumed to be in network order in the buffer."
+  (unpack "n" (buffer-data (buffer-read buffer 2))))
 
 (defmethod buffer-mismatch ((buffer1 buffer) (buffer2 buffer)
 			    &key (start1 0) end1 (start2 0) end2 from-end)

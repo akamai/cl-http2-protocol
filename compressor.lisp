@@ -16,11 +16,12 @@
     (":scheme"                     . "http")
     (":scheme"                     . "https")
     (":status"                     . "200")
-    (":status"                     . "500")
-    (":status"                     . "404")
-    (":status"                     . "403")
+    (":status"                     . "204")
+    (":status"                     . "206")
+    (":status"                     . "304")
     (":status"                     . "400")
-    (":status"                     . "401")
+    (":status"                     . "404")
+    (":status"                     . "500")
     ("accept-charset"              . "")
     ("accept-encoding"             . "")
     ("accept-language"             . "")
@@ -204,10 +205,6 @@
   "Emits command to remove current index from working set."
   (list :name (1+ idx) :type :indexed))
 
-(defmethod reset-cmd ((encoding-context encoding-context))
-  "Emits command to reset working set."
-  (list :name 0 :type :indexed))
-
 (defmethod size-check ((encoding-context encoding-context) cmd)
   "Before doing such a modification, it has to be ensured that the header
 table size will stay lower than or equal to the
@@ -217,8 +214,8 @@ available for the modification.
 
 A consequence of removing one or more entries at the beginning of the
 header table is that the remaining entries are renumbered.  The first
-entry of the header table is always associated to the index 0."
-  (with-slots (table limit) encoding-context
+entry of the header table is always associated to the index 1."
+  (with-slots (table limit refset) encoding-context
     (let ((cursize (loop for (x . y) in table sum (+ (length x) (length y) 32)))
 	  (cmdsize (+ (length (getf cmd :name)) (length (getf cmd :value)) 32)))
 
@@ -231,7 +228,12 @@ entry of the header table is always associated to the index 0."
 	(return-from size-check nil))
 
       (while (> (+ cursize cmdsize) limit)
-	(let ((e (shift table)))
+	(let* ((idx (1- (length table)))
+	       (e (shift table)))
+	  ; Whenever an entry is evicted from the header table, any reference to
+	  ; that entry contained by the reference set is removed.
+	  (dolist (i (loop for r across refset for i from 0 if (= (car r) idx) collect i))
+	    (vector-delete-at refset i))
 	  (decf cursize (+ (length (car e)) (length (cdr e)) 32))))
 
       t)))
@@ -242,8 +244,9 @@ entry of the header table is always associated to the index 0."
 
 (defparameter *headrep*
   '(:indexed      (:prefix 7 :pattern #x80)
-    :noindex      (:prefix 6 :pattern #x40)
-    :incremental  (:prefix 6 :pattern #x00))
+    :noindex      (:prefix 4 :pattern #x00)
+    :incremental  (:prefix 6 :pattern #x40)
+    :neverindex   (:prefix 4 :pattern #x10))
   "Header representation as defined by the spec.")
 
 (defparameter *resetrep*
@@ -275,7 +278,7 @@ entry of the header table is always associated to the index 0."
       encode (I) on 8 bits"
   (let ((limit (1- (expt 2 n))))
     (when (< i limit)
-      (return-from @integer (pack "C" (list i))))
+      (return-from @integer (pack "C" i)))
     
     (let ((bytes (make-data-vector 0)))
       (when (not (zerop n))
@@ -402,10 +405,6 @@ entry of the header table is always associated to the index 0."
 	     do (let ((cmd (remove-cmd cc idx)))
 		  (push cmd commands)
 		  (process cc cmd)))
-
-	  ; if we just blew away the whole refset, recode it to a reset
-	  (when (and (zerop (length refset)) commands)
-	    (setf commands (list (reset-cmd cc))))
 
 	  ; Generate add commands for new headers
 	  (loop

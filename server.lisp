@@ -43,3 +43,11 @@
 			    :payload headers))
 
 	(funcall callback promise)))))
+
+; Again, it only makes sense for a server to emit an ALTSVC frame in
+; normal HTTP operations:
+
+(defmethod altsvc ((server server) max-age port protocol-identifier host origin)
+  "Issue ALTSVC frame to peer."
+  (send server (list :type :altsvc :max-age max-age :port port
+		     :protocol-identifier protocol-identifier :host host :origin origin)))
