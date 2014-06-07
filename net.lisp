@@ -31,6 +31,7 @@
 
 (defparameter *dump-bytes* t)
 (defparameter *dump-bytes-stream* t)
+(defparameter *dump-bytes-base* 16)  ; 10 for decimal, 16 for hexadecimal
 (defparameter *dump-bytes-hook* nil)  ; nil or 'vector-inspect make sense
 
 (defclass net ()
@@ -251,10 +252,14 @@
 
 ; general functions
 
+(defmacro maybe-dump-bytes (type bytes)
+  `(when *dump-bytes*
+     (let ((*print-base* *dump-bytes-base*))
+       (format *dump-bytes-stream* ,(concatenate 'string "http2 " (string-downcase type) ": ~A~%")
+	       (if *dump-bytes-hook* (funcall *dump-bytes-hook* ,bytes) ,bytes)))))
+
 (defun send-bytes (net bytes)
-  (when *dump-bytes*
-    (format *dump-bytes-stream* "http2 send: ~A~%"
-	    (if *dump-bytes-hook* (funcall *dump-bytes-hook* bytes) bytes)))
+  (maybe-dump-bytes :send bytes)
   (net-write-vector net bytes (length bytes))
   (net-finish-output net))
 
@@ -265,9 +270,7 @@
       (error 'end-of-file :stream (net-socket net)))
     (when (plusp bytes-read)
       (setf (fill-pointer bytes) bytes-read)
-      (when *dump-bytes*
-	(format *dump-bytes-stream* "http2 recv: ~A~%"
-		(if *dump-bytes-hook* (funcall *dump-bytes-hook* bytes) bytes)))
+      (maybe-dump-bytes :recv bytes)
       bytes)))
 
 (defun receive-loop (net conn)
@@ -279,5 +282,5 @@
 	     (t (e)
 		(report-error e)
 		(net-socket-close net)))))
-    (end-of-file () ; this is how to leave the loop
+    (end-of-file ()  ; this is how to leave the loop
       nil)))

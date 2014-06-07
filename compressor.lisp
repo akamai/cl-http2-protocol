@@ -278,16 +278,16 @@ entry of the header table is always associated to the index 1."
       encode (I) on 8 bits"
   (let ((limit (1- (expt 2 n))))
     (when (< i limit)
-      (return-from @integer (pack "C" i)))
+      (return-from @integer (pack "B" i :array (make-array 64 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))))
     
-    (let ((bytes (make-data-vector 0)))
+    (let ((bytes (make-array 64 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)))
       (when (not (zerop n))
 	(vector-push-extend limit bytes))
 
       (decf i limit)
       (while (>= i 128)
 	(vector-push-extend (+ (mod i 128) 128) bytes)
-	(setf i (/ i 128)))
+	(setf i (ash i -7)))
       
       (vector-push-extend i bytes)
       bytes)))
@@ -301,7 +301,7 @@ entry of the header table is always associated to the index 1."
    bits prefix. If the string length is strictly less than 128, it is
    represented as one byte.
  * The string value represented as a list of UTF-8 character"
-  (let ((bytes (@integer compressor (length str) 0)))
+  (let ((bytes (@integer compressor (length str) 7)))
     (loop for char across str do (vector-push-extend (char-code char) bytes))
     bytes))
 
