@@ -3,9 +3,6 @@
 (in-package :cl-http2-protocol)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (setq *break-on-signals* t))
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
   (defparameter *huffman-request*
     '((  0 #*11111111111111111110111010 26 #x3ffffba)
       (  1 #*11111111111111111110111011 26 #x3ffffbb)
@@ -280,7 +277,7 @@
      for i from 0 by 8
      do (loop
 	   for b downfrom 7 to 0
-	   for j = i then (1+ j)
+	   for j upfrom i
 	   do (setf (bit data j) (ldb (byte 1 b) c)))
      finally (return data)))
 
@@ -317,14 +314,14 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun huffman-tree (hlist &optional (n 0))
-    (macrolet ((huff-grep ((var list) form) `(remove-if-not (lambda (,var) ,form) ,list)))
+    (macrolet ((huff-filter ((var list) form) `(remove-if-not (lambda (,var) ,form) ,list)))
       (if (> n 27)
 	  nil
-	  (let ((hlist* (huff-grep (h hlist) (< n (huff-nbits h)))))
+	  (let ((hlist* (huff-filter (h hlist) (> (huff-nbits h) n))))
 	    (if (null hlist*)
 		(car hlist)
-		(list (huffman-tree (huff-grep (h hlist*) (= (aref (huff-bitv h) n) 0)) (1+ n))
-		      (huffman-tree (huff-grep (h hlist*) (= (aref (huff-bitv h) n) 1)) (1+ n))))))))
+		(list (huffman-tree (huff-filter (h hlist*) (= (aref (huff-bitv h) n) 0)) (1+ n))
+		      (huffman-tree (huff-filter (h hlist*) (= (aref (huff-bitv h) n) 1)) (1+ n))))))))
 
   (defun tree-to-code (tree)
     (if (integerp (first tree))
@@ -334,20 +331,48 @@
 	     ,(tree-to-code (second tree))))))
 
 (defmacro def-huffman-decode (hlist)
-  `(defun huffman-decode (array input-length)
-     (loop
-	with bit-input-length = (* input-length 8)
-	with bits = (byte-vector-to-bit-vector array input-length)
-	with data = (make-array (* input-length 3) :element-type '(unsigned-byte 8) :fill-pointer 0)
-	with bp = 0
-	with dp = 0
-	while (<= bp bit-input-length)
-	do (macrolet ((next-bit-zero () `(zerop (aref bits (incf bp))))
-		      (yield-byte (c) (if (< c 256) `(setf (aref data (incf dp)) ,c) `(return))))
-	     ,(tree-to-code (huffman-tree (eval hlist)))))))
+  (let ((hcode (tree-to-code (huffman-tree (eval hlist)))))
+    `(defun huffman-decode (array input-length)
+       (loop
+	  with bit-input-length = (* input-length 8)
+	  with bits = (byte-vector-to-bit-vector array input-length)
+	  with data = (make-array (* input-length 3) :element-type '(unsigned-byte 8) :fill-pointer 0)
+	  with bp = 0
+	  with dp = 0
+	  while (< bp bit-input-length)
+	  do (macrolet ((next-bit-zero () `(prog1 (zerop (aref bits bp)) (incf bp)))
+			(yield-byte (c) (if (< c 256) `(progn (setf (aref data dp) ,c) (incf dp)) `(loop-finish))))
+	       ,hcode)
+	  finally (progn
+		    (setf (fill-pointer data) dp)
+		    (return (values data (- bit-input-length bp))))))))
 
-; causes stack overflow or some such
-(def-huffman-decode *huffman-request*)
+; sometimes this causes a stack overflow or some such - if so, just
+; comment out, and uncomment slower version of huffman-decode above
+;(def-huffman-decode *huffman-request*)
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (setq *break-on-signals* nil))
+(defun test-huffman-decode-1 ()
+  (let ((input #(90 139 52 33 152 99 204 35 38 97 130 7 212 219 111 226 229 230 23 211
+		 106 125 219 114 121 226 250 155 108 210 4 129))
+	(input-size 32)
+	(output #(101 99 50 45 53 48 45 49 55 45 49 49 56 45 49 52 52 46 99 111 109 112
+		  117 116 101 45 49 46 97 109 97 122 111 110 97 119 115 46 99 111 109 58
+		  56 48 56 48))
+	(output-leftover 1))
+    (multiple-value-bind (test-output test-output-leftover)
+	(huffman-decode input input-size)
+      (and (not (mismatch output test-output)) (= output-leftover test-output-leftover)))))
+
+(defun test-huffman-decode-2 ()
+  (let ((input #(214 223 118 89 98 79 11 224 111 235 90 84 203 156 220 107 236 55 133
+		 206 93 134 214 149 27 199 105 189 12 32 252 189 134 195 148 200 39 195
+		 226 109 75 87 179 78 64 32 2 2 109 44 193 124 27 208 232 39 195))
+	(input-size 57)
+	(output #(77 111 122 105 108 108 97 47 53 46 48 32 40 77 97 99 105 110 116 111
+		  115 104 59 32 73 110 116 101 108 32 77 97 99 32 79 83 32 88 32 49 48
+		  46 57 59 32 114 118 58 51 50 46 48 41 32 71 101 99 107 111 47 50 48 49
+		  48 48 49 48 49 32 70 105 114 101 102 111 120 47 51 50 46 48))
+	(output-leftover 2))
+    (multiple-value-bind (test-output test-output-leftover)
+	(huffman-decode input input-size)
+      (and (not (mismatch output test-output)) (= output-leftover test-output-leftover)))))

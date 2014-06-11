@@ -88,7 +88,7 @@
   "Performs differential coding based on provided command type.
 - http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-03#section-3.2"
   (with-slots (refset table) encoding-context
-    (let (emit)
+    (let (emit evicted)
 
       ; indexed representation
       (if (eq (getf cmd :type) :indexed)
@@ -126,26 +126,30 @@
 	  ; the reference set entails the following actions:
 	  ;  - The entry is removed from the reference set.
 	  ; 
-	  (let ((idx1 (getf cmd :name)))
+	  (let ((idx1 (getf cmd :name)))  ; 1-based index but 0 is a special value
 	    (declare ((integer 0 *) idx1))
 	    (if (zerop idx1)
 		(setf (fill-pointer refset) 0)
 
-		(let ((idx (1- idx1)))
-		  (let ((cur (position idx refset :key #'car)))
-		    (if cur
-			(vector-delete-at refset cur)
-			(let ((length-table (length table)))
-			  (if (>= idx length-table)
-			      (progn
-				(setf emit (elt *static-table* (- idx length-table)))
-				(when (size-check encoding-context (list :name (car emit) :value (cdr emit)))
+		(let* ((idx (1- idx1))
+		       (cur (position idx refset :key #'car)))
+		  (if cur
+		      (vector-delete-at refset cur)
+		      (let ((length-table (length table)))
+			(if (>= idx length-table)
+			    (progn
+			      (setf emit (elt *static-table* (- idx length-table)))
+			      (multiple-value-bind (ok-to-add this-evicted)
+				  (size-check encoding-context (list :name (car emit) :value (cdr emit)))
+				(when ok-to-add
 				  (push emit table)
 				  (loop for r across refset do (incf (car r)))
-				  (vector-push-extend (cons 0 emit) refset)))
-			      (progn
-				(setf emit (elt table idx))
-				(vector-push-extend (cons idx emit) refset)))))))))
+				  (vector-push-extend (cons 0 emit) refset))
+				(when this-evicted
+				  (setf evicted this-evicted))))
+			    (progn
+			      (setf emit (elt table idx))
+			      (vector-push-extend (cons idx emit) refset))))))))
 
 	  ; A literal representation that is not added to the header table
 	  ; entails the following action:
@@ -175,11 +179,16 @@
 	    (setf emit (cons (getf cmd :name) (getf cmd :value)))
 	      
 	    (when (eq (getf cmd :type) :incremental)
-	      (when (size-check encoding-context (list :name (car emit) :value (cdr emit)))
-		(push emit table)
-		(loop for r across refset do (incf (car r)))
-		(vector-push-extend (cons 0 emit) refset)))))
-      emit)))
+	      (multiple-value-bind (ok-to-add this-evicted)
+		  (size-check encoding-context (list :name (car emit) :value (cdr emit)))
+		(when ok-to-add
+		  (push emit table)
+		  (loop for r across refset do (incf (car r)))
+		  (vector-push-extend (cons 0 emit) refset))
+		(when this-evicted
+		  (setf evicted this-evicted))))))
+
+      (values emit evicted))))
 
 (defmethod add-cmd ((encoding-context encoding-context) header)
   "Emits best available command to encode provided header."
@@ -216,27 +225,37 @@ A consequence of removing one or more entries at the beginning of the
 header table is that the remaining entries are renumbered.  The first
 entry of the header table is always associated to the index 1."
   (with-slots (table limit refset) encoding-context
-    (let ((cursize (loop for (x . y) in table sum (+ (length x) (length y) 32)))
-	  (cmdsize (+ (length (getf cmd :name)) (length (getf cmd :value)) 32)))
+    (flet ((entry-size (header) (+ (length (car header)) (length (cdr header)) 32)))
+      (let ((cursize (loop for header in table sum (entry-size header)))
+	    (cmdsize (entry-size (cons (getf cmd :name) (getf cmd :value))))
+	    ok-to-add
+	    evicted)
 
-      ; The addition of a new entry with a size greater than the
-      ; SETTINGS_HEADER_TABLE_SIZE limit causes all the entries from the
-      ; header table to be dropped and the new entry not to be added to the
-      ; header table.
-      (when (> cmdsize limit)
-	(setf table nil)
-	(return-from size-check nil))
+	;; The addition of a new entry with a size greater than the
+	;; SETTINGS_HEADER_TABLE_SIZE limit causes all the entries from the
+	;; header table to be dropped and the new entry not to be added to the
+	;; header table.
+	(if (> cmdsize limit)
+	    ;; too big, dump table and refset by evicting all
+	    (setf ok-to-add nil
+		  evicted table
+		  table nil
+		  (fill-pointer refset) 0)
+	    ;; could fit, evcit one or more entries from end of table
+	    (progn
+	      (setf ok-to-add t)
+	      (while (> (+ cursize cmdsize) limit)
+		(let* ((idx (1- (length table)))
+		       (e (shift table)))
+		  (decf cursize (entry-size e))
+		  (push e evicted)
+		  (loop
+		     for i from 0
+		     for r across refset
+		     if (= (car r) idx)
+		     do (vector-delete-at refset i))))))
 
-      (while (> (+ cursize cmdsize) limit)
-	(let* ((idx (1- (length table)))
-	       (e (shift table)))
-	  ; Whenever an entry is evicted from the header table, any reference to
-	  ; that entry contained by the reference set is removed.
-	  (dolist (i (loop for r across refset for i from 0 if (= (car r) idx) collect i))
-	    (vector-delete-at refset i))
-	  (decf cursize (+ (length (car e)) (length (cdr e)) 32))))
-
-      t)))
+	(values ok-to-add evicted)))))
 
 (defmethod activep ((encoding-context encoding-context) idx)
   (with-slots (refset) encoding-context
@@ -389,7 +408,7 @@ entry of the header table is always associated to the index 1."
 (defmethod encode ((compressor compressor) headers)
   "Encodes provided list of HTTP headers."
   (with-slots (cc) compressor
-    (with-slots (table refset) cc
+    (with-slots (refset) cc
       (let ((buffer (make-instance 'buffer))
 	    commands)
     
@@ -397,7 +416,8 @@ entry of the header table is always associated to the index 1."
 	; encoding and transmission.
 	; (setf headers (mapcar (lambda (h) (cons (string-downcase (car h)) (cdr h))) headers))
 
-	(let ((starting-refset (copy-seq refset)))
+	(let ((starting-refset (copy-seq refset))
+	      evicted)
 	  ; Generate remove commands for missing headers
 	  (loop
 	     for (idx . header-pair) across starting-refset
@@ -412,8 +432,28 @@ entry of the header table is always associated to the index 1."
 	     if (not (find header-pair starting-refset :key #'cdr :test #'equal))
 	     do (let ((cmd (add-cmd cc header-pair)))
 		  (push cmd commands)
-		  (process cc cmd))))
+		  (multiple-value-bind (emit this-evicted)
+		      (process cc cmd)
+		    (declare (ignore emit))
+		    (when this-evicted
+		      (appendf evicted this-evicted)))))
 
+	  (loop
+	     repeat 10  ; sanity
+	     while evicted
+	     do (loop
+		   with evicted2 = nil
+		   for header-pair in evicted
+		   if (find header-pair headers :test #'equal)
+		   do (let ((cmd (add-cmd cc header-pair)))
+			(push cmd commands)
+			(multiple-value-bind (emit this-evicted)
+			    (process cc cmd)
+			  (declare (ignore emit))
+			  (when this-evicted
+			    (appendf evicted2 this-evicted))))
+		   finally (setf evicted evicted2))))
+	
 	(dolist (cmd (nreverse commands) buffer)
 	  (buffer<< buffer (header compressor cmd)))))))
 

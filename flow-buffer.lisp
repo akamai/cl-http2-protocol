@@ -33,6 +33,10 @@ Buffered DATA frames are emitted in FIFO order."
   (with-slots (send-buffer window) obj
     (when frame
       (push frame send-buffer))
+    (unless (plusp window)
+      (format t "(send-data ~A): held up due to non-positive window~%" obj))
+    (unless frame
+      (format t "(send-data ~A): called without a frame to drain send-buffer~%" obj))
     (while (and (plusp window) send-buffer)
       (setf frame (shift send-buffer))
       (let ((frame-size (buffer-size (getf frame :payload)))

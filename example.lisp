@@ -116,6 +116,7 @@
   (let ((conn (make-instance 'server)))
     (on conn :frame
 	(lambda (bytes)
+	  (format t "transmitting frame now~%")
 	  (send-bytes net (buffer-data bytes))))
       
     (on conn :stream
@@ -126,20 +127,28 @@
 	    (on stream :active
 		(lambda ()
 		  (format t "client opened new stream~%")))
+
 	    (on stream :close
 		(lambda (e)
-		  (format t "stream closed (error, if any: ~A)~%" e)))
+		  (if e
+		      (format t "stream closed, error: ~A~%" e)
+		      (format t "stream closed~%"))))
 	      
 	    (on stream :headers
 		(lambda (h)
 		  (setf req h)
-		  (format t "request headers: ~S~%" h)))
+		  ; (format t "request headers: ~S~%" h)
+		  ))
 	      
 	    (on stream :data
 		(lambda (d)
 		  (format t "payload chunk: <<~A>>~%" d)
 		  (buffer<< buffer d)))
-	      
+	    
+	    (on stream :window
+		(lambda (w)
+		  (format t "stream window update received: ~A~%" w)))
+
 	    (on stream :half-close
 		(if request-handler
 		    (lambda ()

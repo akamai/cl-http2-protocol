@@ -266,7 +266,9 @@ frame addressed to stream ID = 0."
 	 (:settings
 	  (connection-settings connection frame))
 	 (:window-update
+	  (format t "(connection-management ~S): handling a window update frame for increment of ~D in frame ~S~%" connection (getf frame :increment) frame)
 	  (incf window (getf frame :increment))
+	  (format t "(connection-management ~S): upon receiving window update, draining send-buffer~%" connection)
 	  (send-data connection nil t))
 	 (:ping
 	  (if (member :ack (getf frame :flags))

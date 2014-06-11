@@ -86,7 +86,9 @@
        (setf priority (getf frame :priority))
        (emit stream :priority priority))
       (:window-update
+       (format t "(receive ~S): handling a window update frame for increment of ~D in frame ~S~%" stream (getf frame :increment) frame)
        (incf window (getf frame :increment))
+       (format t "(receive ~S): upon receiving window update, draining send-buffer~%" stream)
        (send-data stream)))
 
     (complete-transition stream frame)))

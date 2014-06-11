@@ -29,7 +29,7 @@
 
 (defparameter *next-protos-spec* '("h2-12"))
 
-(defparameter *dump-bytes* t)
+(defparameter *dump-bytes* nil)
 (defparameter *dump-bytes-stream* t)
 (defparameter *dump-bytes-base* 16)  ; 10 for decimal, 16 for hexadecimal
 (defparameter *dump-bytes-hook* nil)  ; nil or 'vector-inspect make sense

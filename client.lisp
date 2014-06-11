@@ -22,6 +22,6 @@
   "Send an outgoing frame. Connection and stream flow control is managed by CONNECTION class."
   (with-slots (state stream-limit window-limit) client
     (when (eq state :connection-header)
-      (emit client :frame *connection-header*)
+      (emit client :frame *connection-preface*)
       (setf state :connected)
       (settings client stream-limit window-limit))))
