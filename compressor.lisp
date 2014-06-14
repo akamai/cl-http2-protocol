@@ -16,11 +16,12 @@
     (":scheme"                     . "http")
     (":scheme"                     . "https")
     (":status"                     . "200")
-    (":status"                     . "500")
-    (":status"                     . "404")
-    (":status"                     . "403")
+    (":status"                     . "204")
+    (":status"                     . "206")
+    (":status"                     . "304")
     (":status"                     . "400")
-    (":status"                     . "401")
+    (":status"                     . "404")
+    (":status"                     . "500")
     ("accept-charset"              . "")
     ("accept-encoding"             . "")
     ("accept-language"             . "")
@@ -76,16 +77,18 @@
 
 (defclass encoding-context (error-include)
   ((type :initarg :type)
-   (table :reader table :initform nil)
+   (table :reader table :initform nil
+	  :documentation "Running set of headers used as a compression dictionary, in addition to *STATIC-TABLE*.")
    (limit :accessor table-limit :initarg :limit :initform 4096)
-   (refset :reader refset :initform (make-array 128 :element-type t :adjustable t :fill-pointer 0)))
+   (refset :reader refset :initform (make-array 128 :element-type t :adjustable t :fill-pointer 0)
+	   :documentation "Headers carried over request-to-request and manipulated by compressed header frames."))
   (:documentation "Encoding context: a header table and reference set for one direction"))
 
 (defmethod process ((encoding-context encoding-context) cmd)
   "Performs differential coding based on provided command type.
 - http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-03#section-3.2"
   (with-slots (refset table) encoding-context
-    (let (emit)
+    (let (emit evicted)
 
       ; indexed representation
       (if (eq (getf cmd :type) :indexed)
@@ -123,23 +126,30 @@
 	  ; the reference set entails the following actions:
 	  ;  - The entry is removed from the reference set.
 	  ; 
-	  (let ((idx (1- (getf cmd :name))))
-	    (if (= idx -1)
+	  (let ((idx1 (getf cmd :name)))  ; 1-based index but 0 is a special value
+	    (declare ((integer 0 *) idx1))
+	    (if (zerop idx1)
 		(setf (fill-pointer refset) 0)
 
-		(let ((cur (position idx refset :key #'car)))
+		(let* ((idx (1- idx1))
+		       (cur (position idx refset :key #'car)))
 		  (if cur
 		      (vector-delete-at refset cur)
-		      (if (>= idx (length table))
-			  (progn
-			    (setf emit (elt *static-table* (- idx (length table))))
-			    (when (size-check encoding-context (list :name (car emit) :value (cdr emit)))
-			      (push emit table)
-			      (loop for r across refset do (incf (car r)))
-			      (vector-push-extend (cons 0 emit) refset)))
-			  (progn
-			    (setf emit (elt table idx))
-			    (vector-push-extend (cons idx emit) refset)))))))
+		      (let ((length-table (length table)))
+			(if (>= idx length-table)
+			    (progn
+			      (setf emit (elt *static-table* (- idx length-table)))
+			      (multiple-value-bind (ok-to-add this-evicted)
+				  (size-check encoding-context (list :name (car emit) :value (cdr emit)))
+				(when ok-to-add
+				  (push emit table)
+				  (loop for r across refset do (incf (car r)))
+				  (vector-push-extend (cons 0 emit) refset))
+				(when this-evicted
+				  (setf evicted this-evicted))))
+			    (progn
+			      (setf emit (elt table idx))
+			      (vector-push-extend (cons idx emit) refset))))))))
 
 	  ; A literal representation that is not added to the header table
 	  ; entails the following action:
@@ -152,25 +162,33 @@
 	  ;  - A reference to the new entry is added to the reference set
 	  ;    (except if this new entry didn't fit in the header table).
 	  ;
-	  (let ((cmd-copy (copy-tree cmd)))
+	  (let ((cmd (copy-tree cmd)))
 	    
 	    (when (integerp (getf cmd :name))
 	      (ensuref (getf cmd :index) (getf cmd :name))
-	      (let* ((idx (1- (getf cmd :index)))
-		     (entry (if (>= idx (length table))
-				(elt *static-table* (- idx (length table)))
-				(elt table idx))))
-		(setf (getf cmd :name) (car entry))
-		(ensuref (getf cmd :value) (cdr entry))))
+	      (let ((idx1 (getf cmd :index)))
+		(declare ((integer 0 *) idx1))
+		(let* ((idx (1- idx1))
+		       (length-table (length table))
+		       (entry (if (>= idx length-table)
+				  (elt *static-table* (- idx length-table))
+				  (elt table idx))))
+		  (setf (getf cmd :name) (car entry))
+		  (ensuref (getf cmd :value) (cdr entry)))))
 
 	    (setf emit (cons (getf cmd :name) (getf cmd :value)))
 	      
 	    (when (eq (getf cmd :type) :incremental)
-	      (when (size-check encoding-context (list :name (car emit) :value (cdr emit)))
-		(push emit table)
-		(loop for r across refset do (incf (car r)))
-		(vector-push-extend (cons 0 emit) refset)))))
-      emit)))
+	      (multiple-value-bind (ok-to-add this-evicted)
+		  (size-check encoding-context (list :name (car emit) :value (cdr emit)))
+		(when ok-to-add
+		  (push emit table)
+		  (loop for r across refset do (incf (car r)))
+		  (vector-push-extend (cons 0 emit) refset))
+		(when this-evicted
+		  (setf evicted this-evicted))))))
+
+      (values emit evicted))))
 
 (defmethod add-cmd ((encoding-context encoding-context) header)
   "Emits best available command to encode provided header."
@@ -194,7 +212,7 @@
 
 (defmethod remove-cmd ((encoding-context encoding-context) idx)
   "Emits command to remove current index from working set."
-  (list :name idx :type :indexed))
+  (list :name (1+ idx) :type :indexed))
 
 (defmethod size-check ((encoding-context encoding-context) cmd)
   "Before doing such a modification, it has to be ensured that the header
@@ -205,24 +223,39 @@ available for the modification.
 
 A consequence of removing one or more entries at the beginning of the
 header table is that the remaining entries are renumbered.  The first
-entry of the header table is always associated to the index 0."
-  (with-slots (table limit) encoding-context
-    (let ((cursize (loop for (x . y) in table sum (+ (length x) (length y) 32)))
-	  (cmdsize (+ (length (getf cmd :name)) (length (getf cmd :value)) 32)))
+entry of the header table is always associated to the index 1."
+  (with-slots (table limit refset) encoding-context
+    (flet ((entry-size (header) (+ (length (car header)) (length (cdr header)) 32)))
+      (let ((cursize (loop for header in table sum (entry-size header)))
+	    (cmdsize (entry-size (cons (getf cmd :name) (getf cmd :value))))
+	    ok-to-add
+	    evicted)
 
-      ; The addition of a new entry with a size greater than the
-      ; SETTINGS_HEADER_TABLE_SIZE limit causes all the entries from the
-      ; header table to be dropped and the new entry not to be added to the
-      ; header table.
-      (when (> cmdsize limit)
-	(setf table nil)
-	(return-from size-check nil))
+	;; The addition of a new entry with a size greater than the
+	;; SETTINGS_HEADER_TABLE_SIZE limit causes all the entries from the
+	;; header table to be dropped and the new entry not to be added to the
+	;; header table.
+	(if (> cmdsize limit)
+	    ;; too big, dump table and refset by evicting all
+	    (setf ok-to-add nil
+		  evicted table
+		  table nil
+		  (fill-pointer refset) 0)
+	    ;; could fit, evcit one or more entries from end of table
+	    (progn
+	      (setf ok-to-add t)
+	      (while (> (+ cursize cmdsize) limit)
+		(let* ((idx (1- (length table)))
+		       (e (shift table)))
+		  (decf cursize (entry-size e))
+		  (push e evicted)
+		  (loop
+		     for i from 0
+		     for r across refset
+		     if (= (car r) idx)
+		     do (vector-delete-at refset i))))))
 
-      (while (> (+ cursize cmdsize) limit)
-	(let ((e (shift table)))
-	  (decf cursize (+ (length (car e)) (length (cdr e)) 32))))
-
-      t)))
+	(values ok-to-add evicted)))))
 
 (defmethod activep ((encoding-context encoding-context) idx)
   (with-slots (refset) encoding-context
@@ -230,9 +263,14 @@ entry of the header table is always associated to the index 0."
 
 (defparameter *headrep*
   '(:indexed      (:prefix 7 :pattern #x80)
-    :noindex      (:prefix 6 :pattern #x40)
-    :incremental  (:prefix 6 :pattern #x00))
+    :noindex      (:prefix 4 :pattern #x00)
+    :incremental  (:prefix 6 :pattern #x40)
+    :neverindex   (:prefix 4 :pattern #x10))
   "Header representation as defined by the spec.")
+
+(defparameter *resetrep*
+  '(:reset        (:prefix 7 :pattern #x80)
+    :new-max-size (:prefix 7 :pattern #x00)))
 
 ; Responsible for encoding header key-value pairs using HPACK algorithm.
 ; Compressor must be initialized with appropriate starting context based
@@ -259,16 +297,16 @@ entry of the header table is always associated to the index 0."
       encode (I) on 8 bits"
   (let ((limit (1- (expt 2 n))))
     (when (< i limit)
-      (return-from @integer (pack "C" (list i))))
+      (return-from @integer (pack "B" i :array (make-array 64 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))))
     
-    (let ((bytes (make-data-vector 0)))
+    (let ((bytes (make-array 64 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)))
       (when (not (zerop n))
 	(vector-push-extend limit bytes))
 
       (decf i limit)
       (while (>= i 128)
 	(vector-push-extend (+ (mod i 128) 128) bytes)
-	(setf i (/ i 128)))
+	(setf i (ash i -7)))
       
       (vector-push-extend i bytes)
       bytes)))
@@ -282,33 +320,36 @@ entry of the header table is always associated to the index 0."
    bits prefix. If the string length is strictly less than 128, it is
    represented as one byte.
  * The string value represented as a list of UTF-8 character"
-  (let ((bytes (@integer compressor (length str) 0)))
+  (let ((bytes (@integer compressor (length str) 7)))
     (loop for char across str do (vector-push-extend (char-code char) bytes))
     bytes))
 
 (defmethod header ((compressor compressor) h &optional (buffer (make-instance 'buffer)))
   (macrolet ((<<integer (i n) `(buffer<< buffer (@integer compressor ,i ,n)))
-	     (<<string (s) `(buffer<< buffer (@string compressor ,s))))
+	     (<<string (s) `(buffer<< buffer (@string compressor ,s)))
+	     (+pattern (b p) (with-gensyms (b*) `(let ((,b* ,b)) (setf (aref ,b* 0) (logior (aref ,b* 0) ,p)) ,b*)))
+	     (<<integer+ (i n p) `(buffer<< buffer (+pattern (@integer compressor ,i ,n) ,p))))
 
     (let ((rep (getf *headrep* (getf h :type))))
+      (macrolet ((firstinteger (&rest cmd) `(<<integer+ ,@(cdar cmd) (getf rep :pattern))))
 
-      (if (eq (getf h :type) :indexed)
-	  (<<integer (getf h :name) (getf rep :prefix))
+	(if (eq (getf h :type) :indexed)
+	    (progn
+	      (firstinteger (<<integer (getf h :name) (getf rep :prefix)))
+	      (when (zerop (getf h :name))
+		(let ((rrep (getf *resetrep* :reset)))
+		  (<<integer+ 0 (getf rrep :prefix) (getf rrep :pattern)))))
 
-	  (progn
-	    (if (integerp (getf h :name))
-		(<<integer (1+ (getf h :name)) (getf rep :prefix))
-		(progn
-		  (<<integer 0 (getf rep :prefix))
-		  (<<string (getf h :name))))
+	    (progn
+	      (if (integerp (getf h :name))
+		  (firstinteger (<<integer (getf h :name) (getf rep :prefix)))
+		  (progn
+		    (firstinteger (<<integer 0 (getf rep :prefix)))
+		    (<<string (getf h :name))))
 	    
-	    (if (integerp (getf h :value))
-		(<<integer (getf h :value) 0)
-		(<<string (getf h :value)))))
-
-      ; set header representation pattern on first byte
-      (let ((fb (logior (buffer-firstbyte buffer) (getf rep :pattern))))
-	(buffer-setbyte buffer 0 fb))))
+	      (if (integerp (getf h :value))
+		  (<<integer (getf h :value) 0)
+		  (<<string (getf h :value))))))))
 
   buffer)
 
@@ -361,38 +402,60 @@ entry of the header table is always associated to the index 0."
 			    collect header)
 			 headers))))
 
+(defmethod preprocess ((compressor compressor) headers)
+  (split-cookies compressor (combine compressor headers)))
+
 (defmethod encode ((compressor compressor) headers)
   "Encodes provided list of HTTP headers."
   (with-slots (cc) compressor
-    (let ((buffer (make-instance 'buffer))
-	  (commands nil))
+    (with-slots (refset) cc
+      (let ((buffer (make-instance 'buffer))
+	    commands)
     
-      ; Literal header names MUST be translated to lowercase before
-      ; encoding and transmission.
-      ; (setf headers (mapcar (lambda (h) (cons (string-downcase (car h)) (cdr h))) headers))
+	; Literal header names MUST be translated to lowercase before
+	; encoding and transmission.
+	; (setf headers (mapcar (lambda (h) (cons (string-downcase (car h)) (cdr h))) headers))
 
-      ; Generate remove commands for missing headers
-      (loop
-	 for (idx . (wk . wv)) across (refset cc)
-	 if (not (find (cons wk wv) headers :test #'equal))
-	 do (push (remove-cmd cc idx) commands))
+	(let ((starting-refset (copy-seq refset))
+	      evicted)
+	  ; Generate remove commands for missing headers
+	  (loop
+	     for (idx . header-pair) across starting-refset
+	     if (not (find header-pair headers :test #'equal))
+	     do (let ((cmd (remove-cmd cc idx)))
+		  (push cmd commands)
+		  (process cc cmd)))
 
-      ; Generate add commands for new headers
-      (loop
-	 for (hk . hv) in headers
-	 if (not (find (cons hk hv) (refset cc) :key #'cdr :test #'equal))
-	 do (push (add-cmd cc (cons hk hv)) commands))
+	  ; Generate add commands for new headers
+	  (loop
+	     for header-pair in headers
+	     if (not (find header-pair starting-refset :key #'cdr :test #'equal))
+	     do (let ((cmd (add-cmd cc header-pair)))
+		  (push cmd commands)
+		  (multiple-value-bind (emit this-evicted)
+		      (process cc cmd)
+		    (declare (ignore emit))
+		    (when this-evicted
+		      (appendf evicted this-evicted)))))
 
-      (loop
-	 for cmd in (nreverse commands)
-	 do (progn (process cc (copy-list cmd))
-		   (let ((x (header compressor cmd)))
-		     (buffer<< buffer x))))
-
-      buffer)))
-
-(defmethod encode-with-ordering ((compressor compressor) headers)
-  (split-cookies compressor (combine compressor headers)))
+	  (loop
+	     repeat 10  ; sanity
+	     while evicted
+	     do (loop
+		   with evicted2 = nil
+		   for header-pair in evicted
+		   if (find header-pair headers :test #'equal)
+		   do (let ((cmd (add-cmd cc header-pair)))
+			(push cmd commands)
+			(multiple-value-bind (emit this-evicted)
+			    (process cc cmd)
+			  (declare (ignore emit))
+			  (when this-evicted
+			    (appendf evicted2 this-evicted))))
+		   finally (setf evicted evicted2))))
+	
+	(dolist (cmd (nreverse commands) buffer)
+	  (buffer<< buffer (header compressor cmd)))))))
 
 (defclass decompressor ()
   ((cc-type :initarg :type)
@@ -452,6 +515,29 @@ entry of the header table is always associated to the index 0."
 	(setf (getf header :value) (@string decompressor buf)))
 
       header)))
+
+(defmethod join-cookies ((decompressor decompressor) headers)
+  (if (loop
+	 for (k . v) on headers
+	 count (string= (car k) "cookie") into c
+	 if (= 2 c) do (return t)
+	 finally (return nil))
+      (loop
+	 with new-headers = nil
+	 with cookie-values = nil
+	 for header in headers
+	 for (k . v) = header
+	 if (string= k "cookie")
+	 do (push v cookie-values)
+	 else
+	 do (push header new-headers)
+	 finally (progn
+		   (push (cons "cookie" (format nil "~{~A~^; ~}" cookie-values)) new-headers)
+		   (return (nreverse new-headers))))
+      headers))
+
+(defmethod postprocess ((decompressor decompressor) headers)
+  (join-cookies decompressor headers))
 
 (defmethod decode ((decompressor decompressor) buf)
   "Decodes and processes header commands within provided buffer.

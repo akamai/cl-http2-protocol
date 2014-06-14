@@ -6,7 +6,7 @@
   "Maximum size of a DATA payload (16383 bytes, ~16K).")
 
 (defclass flowbuffer-include ()
-  ((send-buffer :accessor send-buffer :initarg :send-buffer))
+  ((send-buffer :accessor send-buffer :initarg :send-buffer :initform nil))
   (:documentation "Implementation of stream and connection DATA flow control: frames may
 be split and / or may be buffered based on current flow control window."))
 
@@ -24,7 +24,7 @@ and connection flow control."
 (defgeneric encode (obj frame))
 (defgeneric emit (obj obj &rest args))
 
-(defmethod send-data ((obj flowbuffer-include) &optional frame encode)
+(defmethod send-data ((obj flowbuffer-include) &optional frame)
   "Buffers outgoing DATA frames and applies flow control logic to split
 and emit DATA frames based on current flow control window. If the
 window is large enough, the data is sent immediately. Otherwise, the
@@ -33,21 +33,33 @@ Buffered DATA frames are emitted in FIFO order."
   (with-slots (send-buffer window) obj
     (when frame
       (push frame send-buffer))
+    (unless (plusp window)
+      (format t "(send-data ~A): held up due to non-positive window~%" obj))
+    (drain-send-buffer obj)))
+
+(defmethod drain-send-buffer ((obj flowbuffer-include) &optional encode)
+  "Buffers outgoing DATA frames and applies flow control logic to split
+and emit DATA frames based on current flow control window. If the
+window is large enough, the data is sent immediately. Otherwise, the
+data is buffered until the flow control window is updated.
+Buffered DATA frames are emitted in FIFO order."
+  (with-slots (send-buffer window) obj
     (while (and (plusp window) send-buffer)
-      (let ((frame (shift send-buffer))
-	    (sent 0)
-	    (frame-size (buffer-size (getf frame :payload))))
-	(if (> frame-size window)
-	    (let* ((payload (remf frame :payload))
-		   (chunk (copy-list frame))) ; dup***
-	      (setf (getf frame :payload) (buffer-slice! payload 0 window))
-	      (setf (getf chunk :length) (buffer-size payload))
-	      (setf (getf chunk :payload) payload)
-	      (deletef (getf frame :flags) :end-stream)
-	      (unshift send-buffer chunk)
-	      (setf sent window))
-	    (setf sent frame-size))
-	(when encode
-	  (setf frame (encode obj frame)))
-	(emit obj :frame frame)
-	(decf window sent)))))
+      (let ((frame (shift send-buffer)))
+	(let ((frame-size (buffer-size (getf frame :payload)))
+	      (sent 0))
+	  (if (> frame-size window)
+	      (let* ((payload (prog1 (getf frame :payload)
+				(remf frame :payload)))
+		     (chunk (copy-tree frame)))
+		(setf (getf frame :payload) (buffer-slice! payload 0 window))
+		(setf (getf chunk :length) (buffer-size payload))
+		(setf (getf chunk :payload) payload)
+		(deletef (getf frame :flags) :end-stream)
+		(unshift chunk send-buffer)
+		(setf sent window))
+	      (setf sent frame-size))
+	  (when encode
+	    (setf frame (encode obj frame)))
+	  (emit obj :frame frame)
+	  (decf window sent))))))

@@ -27,10 +27,11 @@
 (defparameter *server-key-file* (merge-pathnames "mykey.pem" *key-pathname*))
 (defparameter *server-cert-file* (merge-pathnames "mycert.pem" *key-pathname*))
 
-(defparameter *next-protos-spec* '("HTTP-draft-09/2.0"))
+(defparameter *next-protos-spec* '("h2-12"))
 
-(defparameter *dump-bytes* t)
+(defparameter *dump-bytes* nil)
 (defparameter *dump-bytes-stream* t)
+(defparameter *dump-bytes-base* 16)  ; 10 for decimal, 16 for hexadecimal
 (defparameter *dump-bytes-hook* nil)  ; nil or 'vector-inspect make sense
 
 (defclass net ()
@@ -40,7 +41,9 @@
   (:documentation "Abstraction for multiple network implementations"))
 
 
-(defclass net-ssl (net) ()
+(defclass net-ssl (net)
+  ((cert-file :initarg :cert-file :initform *server-cert-file*)
+   (key-file :initarg :key-file :initform *server-key-file*))
   (:documentation "CL+SSL wrapping USOCKET"))
 
 (defmethod net-socket-listen ((net net-ssl) host port)
@@ -56,11 +59,11 @@
     (setf raw-socket (socket-accept listener))))
 
 (defmethod net-socket-prepare-server ((net net-ssl))
-  (with-slots (raw-socket socket) net
+  (with-slots (raw-socket socket key-file cert-file) net
     (setf socket (cl+ssl:make-ssl-server-stream
 		  (stream-fd (socket-stream raw-socket))
-		  :key (namestring *server-key-file*)
-		  :certificate (namestring *server-cert-file*)
+		  :key (namestring key-file)
+		  :certificate (namestring cert-file)
 		  :close-callback (lambda-ignore (socket-close raw-socket))
 		  :next-protos-spec *next-protos-spec*))
     (let ((npn (cl+ssl::get-next-proto-negotiated socket)))
@@ -108,6 +111,13 @@
   (with-slots (socket) net
     (handler-case
 	(write-sequence bytes socket :end n)
+      (cl+ssl::ssl-error-syscall ()
+	(error 'connection-reset-error :stream socket)))))
+
+(defmethod net-input-ready ((net net-ssl))
+  (with-slots (socket) net
+    (handler-case
+	(cl+ssl::stream-listen socket)
       (cl+ssl::ssl-error-syscall ()
 	(error 'connection-reset-error :stream socket)))))
 
@@ -249,10 +259,14 @@
 
 ; general functions
 
+(defmacro maybe-dump-bytes (type bytes)
+  `(when *dump-bytes*
+     (let ((*print-base* *dump-bytes-base*))
+       (format *dump-bytes-stream* ,(concatenate 'string "http2 " (string-downcase type) ": ~A~%")
+	       (if *dump-bytes-hook* (funcall *dump-bytes-hook* ,bytes) ,bytes)))))
+
 (defun send-bytes (net bytes)
-  (when *dump-bytes*
-    (format *dump-bytes-stream* "http2 send: ~A~%"
-	    (if *dump-bytes-hook* (funcall *dump-bytes-hook* bytes) bytes)))
+  (maybe-dump-bytes :send bytes)
   (net-write-vector net bytes (length bytes))
   (net-finish-output net))
 
@@ -263,23 +277,19 @@
       (error 'end-of-file :stream (net-socket net)))
     (when (plusp bytes-read)
       (setf (fill-pointer bytes) bytes-read)
-      (when *dump-bytes*
-	(format *dump-bytes-stream* "http2 recv: ~A~%"
-		(if *dump-bytes-hook* (funcall *dump-bytes-hook* bytes) bytes)))
+      (maybe-dump-bytes :recv bytes)
       bytes)))
 
 (defun receive-loop (net conn)
   (handler-case
       (loop
+	 (while (and (http2::pump-stream-queues conn 2)
+		     (not (net-input-ready net))))
 	 (when-let (bytes (receive-bytes net))
 	   (handler-case-unless *debug-mode*
 	       (connection<< conn bytes)
 	     (t (e)
-		(format t "~S~%" e)
-		(when (typep e 'simple-condition)
-		  (apply #'format t
-			 (concatenate 'string "(" (simple-condition-format-control e) ")~%")
-			 (simple-condition-format-arguments e)))
+		(report-error e)
 		(net-socket-close net)))))
-    (end-of-file () ; this is how to leave the loop
+    (end-of-file ()  ; this is how to leave the loop
       nil)))

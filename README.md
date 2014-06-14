@@ -4,8 +4,9 @@ CL-HTTP2-PROTOCOL
 What This Is
 ------------
 
-This is [HTTP/2.0
-draft-09](http://tools.ietf.org/html/draft-ietf-httpbis-http2-09)
+This is [HTTP/2
+draft-12](http://tools.ietf.org/html/draft-ietf-httpbis-http2-12)
+(a.k.a. "h2-12")
 [interopability test
 code](https://github.com/http2/http2-spec/wiki/Implementations)
 written in Common Lisp. It has only been tested against SBCL 1.1.8.0
@@ -13,12 +14,12 @@ on x86, but it should be possible to make it work on other Common Lisp
 implementations, subject to some editing in util.lisp.
 
 The code offers a pure Common Lisp transport agnostic implementation
-of the HTTP 2.0 protocol at draft-09. An example client and server are
+of the HTTP/2 protocol at draft-12. An example client and server are
 included for a "Hello, World" style test, which employ TLS using
 `CL+SSL` and OpenSSL. For unencrypted communication (a.k.a. plain or
 direct), code using `USOCKET` is included (on SBCL, another option is
 available using `SB-BSD-SOCKETS`), but this is offered as a
-convenience only, as HTTP/2.0 will likely enforce TLS.
+convenience only, as HTTP/2 will likely enforce TLS.
 
 Support for:
 
@@ -36,10 +37,10 @@ Support for:
 * [Server push](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html#HTTP2_PUSH)
 * Connection and stream management
 
-Current implementation (see [HPBN chapter for HTTP 2.0 overview](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html)), is based on:
+Current implementation (see [HPBN chapter for HTTP/2 overview](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html)), is based on:
 
-* [draft-ietf-httpbis-http2-09](http://tools.ietf.org/html/draft-ietf-httpbis-http2-09)
-* [draft-ietf-httpbis-header-compression-05](http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-05)
+* [draft-ietf-httpbis-http2-12](http://tools.ietf.org/html/draft-ietf-httpbis-http2-12)
+* [draft-ietf-httpbis-header-compression-07](http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-07)
 
 Copyright
 ---------
@@ -63,16 +64,15 @@ Notes on Port
 
 This code began life as a port from the
 [Ruby interopability code](https://github.com/igrigorik/http-2)
-written by Ilya Grigorik released under MIT license. This code may or
-may not track changes to Ilya's code, depending on how quickly we move
-forward to later draft iterations, etc. At the time of writing, this
-code has been improved beyond the original port to meet a newer draft
-specification (draft-09).
+written by Ilya Grigorik released under MIT license. This code has
+since diverged to support newer drafts (up to draft-12 currently) and
+also to allow queueing and multiplexing support with a prioritization
+algorithm.
 
-The port was done line-by-line so currently the structure, comments,
-and techniques closely follow along. Some port notes sprinkled in the
-code discuss choices or notes about the port. For the most part, the
-major differences are:
+The original draft-06 port was done line-by-line so currently the
+structure, comments, and techniques closely follow along. Some port
+notes sprinkled in the code discuss choices or notes about the
+port. For the most part, the major differences are:
 
 * util.lisp defines several general purpose forms that give us some
   capabilities similar to calls in Ruby as well as convenience calls.
@@ -112,7 +112,7 @@ Architect on the Foundry team in the Web Experience business at
 Akamai. Our team's mission is innovative applied R&D, and accordingly
 we explore new technologies close to the mission of excellent web
 experience. Note that this code is intended to be used against the
-other HTTP/2.0 interopability client/server code linked above, and not
+other HTTP/2 interopability client/server code linked above, and not
 necessarily any part of the Akamai network.
 
 This system was named `CL-HTTP2-PROTOCOL` to avoid misunderstanding
@@ -151,7 +151,7 @@ sbcl --script <<EOF
 (in-package :http2-example)
 (example-server :secure t)
 EOF
-# now you have an HTTP/2.0 server on port 8080
+# now you have an HTTP/2 server on port 8080
 # note, any exception will cause it to exit
 # EXAMPLE-SERVER accepts a :port keyword as well
 #
@@ -164,6 +164,12 @@ sbcl --script <<EOF
 (example-client "https://localhost:8080/")
 EOF
 ```
+
+At the time of writing (June 13, 2014), Firefox Nightly will be
+compatible with your HTTP/2 server started above as well. To use the
+`:SECURE` keyword and using the default port, the address bar in
+Firefox Nightly should be `https://IP:8080/` where IP is the IP
+address for your server.
 
 Getting Started
 ---------------
@@ -182,8 +188,9 @@ Getting Started
 ```
 
 Check out `EXAMPLE-CLIENT` and `EXAMPLE-SERVER` in `HTTP2-EXAMPLE` for
-basic examples. These functions use `CL+SSL` for secure connections,
-or `USOCKET` / `SB-BSD-SOCKETS` for plain connections.
+basic examples that perform complete HTTP request/responses. These
+functions use `CL+SSL` for secure connections, or `USOCKET` /
+`SB-BSD-SOCKETS` for plain connections.
 
 Connection lifecycle management
 -------------------------------
@@ -203,7 +210,7 @@ lifecycle. For example:
 (defvar server (make-instance 'server))
 
 (on server :stream (lambda (stream) ...))  ; process inbound stream
-(on server :frame (lambda (bytes) ...))  ; encoded HTTP 2.0 frames
+(on server :frame (lambda (bytes) ...))  ; encoded HTTP/2 frames
 
 (ping server (lambda (payload) ...))  ; send ping, process pong
 
@@ -235,14 +242,14 @@ Events emitted by the `CONNECTION` object:
   </tr>
   <tr>
     <td><b>:frame</b></td>
-    <td>fires once for every encoded HTTP 2.0 frame that needs to be sent to the peer</td>
+    <td>fires once for every encoded HTTP/2 frame that needs to be sent to the peer</td>
   </tr>
 </table>
 
 Stream lifecycle management
 ---------------------------
 
-A single HTTP 2.0 connection can
+A single HTTP/2 connection can
 [multiplex multiple streams](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html#REQUEST_RESPONSE_MULTIPLEXING)
 in parallel: multiple requests and responses can be in flight
 simultaneously and stream data can be interleaved and
@@ -350,7 +357,7 @@ Events emitted by the `STREAM` object:
 Prioritization
 --------------
 
-Each HTTP 2.0
+Each HTTP/2
 [stream has a priority value](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html#HTTP2_PRIORITIZATION)
 that can be sent when the new stream is initialized, and optionally
 reprioritized later:
@@ -376,7 +383,7 @@ Multiplexing multiple streams over the same TCP connection introduces
 contention for shared bandwidth resources. Stream priorities can help
 determine the relative order of delivery, but priorities alone are
 insufficient to control how the resource allocation is performed
-between multiple streams. To address this, HTTP 2.0 provides a simple
+between multiple streams. To address this, HTTP/2 provides a simple
 mechanism for
 [stream and connection flow control](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html#_flow_control).
 
@@ -400,22 +407,10 @@ when to emit window updates:
 (window-update stream 2048) ; increment stream window by 2048 bytes
 ```
 
-Alternatively, flow control can be disabled by emitting an appropriate
-settings frame on the connection:
-
-```lisp
-; limit the number of concurrent streams to 100 and disable flow control
-(settings conn :streams 100 :window +infinity)
-```
-
-The symbol `+INFINITY` is defined in util.lisp and should be a symbol
-macro for IEEE floating point positive infinity on your CL
-implementation.
-
 Server push
 -----------
 
-An HTTP 2.0 server can
+An HTTP/2 server can
 [send multiple replies](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html#HTTP2_PUSH)
 to a single client request. To do so, first it emits a "push promise"
 frame which contains the headers of the promised resource, followed by

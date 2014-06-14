@@ -9,7 +9,7 @@
   "Default stream priority (lower values are higher priority)")
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defparameter *connection-header*
+  (defparameter *connection-preface*
     (buffer-simple (concatenate 'string "PRI * HTTP/2.0" #1='(#\Return #\Linefeed) #1# "SM" #1# #1#))
     "Default connection \"fast-fail\" preamble string as defined by the spec"))
 
@@ -71,17 +71,14 @@ new streams for current connection."
   "Issue ENHANCE_YOUR_CALM to peer."
   (goaway :error :enhance-your-calm))
 
-(defmethod settings ((connection connection) &optional
-		     (stream-limit (slot-value connection 'stream-limit))
-		     (window-limit (slot-value connection 'window-limit)))
-  "Sends a connection SETTINGS frame to the peer. Setting window size
-to +INFINITY disables flow control."
-  (with-slots (window) connection
-    (let ((payload (list :settings-max-concurrent-streams stream-limit)))
-      (if (eql window +infinity)
-	  (setf (getf payload :settings-flow-control-options) 1)
-	  (setf (getf payload :settings-initial-window-size) window-limit))
-      (send connection (list :type :settings :stream 0 :payload (reverse-plist payload))))))
+(defmethod settings ((connection connection)
+		     &optional
+		       (stream-limit (slot-value connection 'stream-limit))
+		       (window-limit (slot-value connection 'window-limit)))
+  "Sends a connection SETTINGS frame to the peer."
+  (send connection (list :type :settings :stream 0
+			 :payload (list :settings-max-concurrent-streams stream-limit
+					:settings-initial-window-size window-limit))))
 
 ; these have to appear here to compile (receive connection ...) properly
 (defgeneric receive (obj data))
@@ -103,15 +100,15 @@ stream frames are passed to appropriate stream objects."
 	; Client connection header is 24 byte connection header followed by
 	; SETTINGS frame. Server connection header is SETTINGS frame only.
 	(when (eq state :new)
-	  (if (< (buffer-size recv-buffer) #.(buffer-size *connection-header*))
+	  (if (< (buffer-size recv-buffer) #.(buffer-size *connection-preface*))
 	      (if (buffer-mismatch recv-buffer
-				   *connection-header*
+				   *connection-preface*
 				   :end2 (buffer-size recv-buffer))
 		  (raise :http2-handshake-error)
 		  (return-from receive))
-	      (if (buffer-mismatch (buffer-read recv-buffer #.(buffer-size *connection-header*))
-				   *connection-header*
-				   :end1 #.(buffer-size *connection-header*))
+	      (if (buffer-mismatch (buffer-read recv-buffer #.(buffer-size *connection-preface*))
+				   *connection-preface*
+				   :end1 #.(buffer-size *connection-preface*))
 		  (raise :http2-handshake-error)
 		  (progn
 		    (setf state :connection-header)
@@ -139,10 +136,7 @@ stream frames are passed to appropriate stream objects."
 
 	      (remf frame :length)
 	      (setf (getf frame :payload) headers)
-	      (push (if (eq (getf frame :type) :push-promise)
-			:end-push-promise
-			:end-headers)
-		    (getf frame :flags))))
+	      (push :end-headers (getf frame :flags))))
 
 	  ; SETTINGS frames always apply to a connection, never a single stream.
 	  ; The stream identifier for a settings frame MUST be zero.  If an
@@ -172,14 +166,14 @@ stream frames are passed to appropriate stream objects."
 		   (when (null stream)
 		     (setf stream (activate-stream connection
 				   (getf frame :stream)
-				   (or (getf frame :priority) *default-priority*)))
+				   (or (getf frame :weight) *default-priority*)))
 		     (emit connection :stream stream))
 
 		   (stream<< stream frame)))
 		(:push-promise
 		 ; The last frame in a sequence of PUSH_PROMISE/CONTINUATION
-		 ; frames MUST have the END_PUSH_PROMISE/END_HEADERS flag set
-		 (when (not (member :end-push-promise (getf frame :flags)))
+		 ; frames MUST have the END_HEADERS flag set
+		 (when (not (member :end-headers (getf frame :flags)))
 		   (push frame continuation)
 		   (return-from receive))
 	     
@@ -203,14 +197,13 @@ stream frames are passed to appropriate stream objects."
 		   (when (null parent)
 		     (connection-error connection :msg "missing parent ID"))
 
-		   (if (not (or (eq (state parent) :open)
-				(eq (state parent) :half-closed-local)))
+		   (if (not (member (stream-state parent) '(:open :half-closed-local)))
 		       ; An endpoint might receive a PUSH_PROMISE frame after it sends
 		       ; RST_STREAM.  PUSH_PROMISE causes a stream to become "reserved".
 		       ; The RST_STREAM does not cancel any promised stream.  Therefore, if
 		       ; promised streams are not desired, a RST_STREAM can be used to
 		       ; close any of those streams.
-		       (if (eq (closed parent) :local-rst)
+		       (if (eq (stream-closed parent) :local-rst)
 			   ; We can either (a) 'resurrect' the parent, or (b) RST_STREAM
 			   ; ... sticking with (b), might need to revisit later.
 			   (send connection (list :type :rst-stream :stream pid :error :refused-stream))
@@ -234,7 +227,7 @@ stream frames are passed to appropriate stream objects."
 control and may be split and / or buffered based on current window size.
 All other frames are sent immediately."
   (if (eq (getf frame :type) :data)
-      (send-data connection frame t)
+      (send-data connection frame)
       ; An endpoint can end a connection at any time. In particular, an
       ; endpoint MAY choose to treat a stream error as a connection error.
       (if (eq (getf frame :type) :rst-stream)
@@ -273,9 +266,8 @@ frame addressed to stream ID = 0."
 	 (:settings
 	  (connection-settings connection frame))
 	 (:window-update
-	  (flow-control-allowed-p connection)
 	  (incf window (getf frame :increment))
-	  (send-data connection nil t))
+	  (drain-send-buffer connection))
 	 (:ping
 	  (if (member :ack (getf frame :flags))
 	      (emit connection :pong (getf frame :payload))
@@ -327,7 +319,6 @@ frame addressed to stream ID = 0."
 ; the flow control window to become positive.
 (defmethod connection-setting ((connection connection) (key (eql :settings-initial-window-size)) value)
   (with-slots (window window-limit streams) connection
-    (flow-control-allowed-p connection)
     (setf window (+ (- window window-limit) value))
     (dohash (id stream streams)
       (emit stream :window (+ (- (stream-window stream) window-limit) value)))
@@ -336,13 +327,6 @@ frame addressed to stream ID = 0."
 (defmethod connection-setting ((connection connection) (key (eql :settings-max-concurrent-streams)) value)
   (with-slots (stream-limit) connection
     (setf stream-limit value)))
-
-(defmethod connection-setting ((connection connection) (key (eql :settings-flow-control-options)) value)
-  (with-slots (window window-limit) connection
-    (flow-control-allowed-p connection)
-    (when (= value 1)
-      (setf window +infinity
-	    window-limit +infinity))))
 
 (defmethod decode-headers ((connection connection) frame)
   "Decode headers payload and update connection decompressor state.
@@ -354,22 +338,16 @@ or an END_PROMISE flag is seen."
       (progn
 	(with-slots (decompressor) connection
 	  (when (not (vectorp (getf frame :payload)))
-	    (setf (getf frame :payload) (decode decompressor (getf frame :payload))))))
-    (t (e) (connection-error connection :type :compression-error :msg e)))) ; ***
+	    (setf (getf frame :payload) (postprocess decompressor (decode decompressor (getf frame :payload)))))))
+    (t (e) (connection-error connection :type :compression-error :msg e))))
 
 (defmethod encode-headers ((connection connection) frame)
   "Encode headers payload and update connection compressor state."
   (handler-case-unless *debug-mode*
       (with-slots (compressor) connection
 	(when (not (vectorp (getf frame :payload)))
-	  (setf (getf frame :payload) (encode compressor (getf frame :payload)))))
+	  (setf (getf frame :payload) (encode compressor (preprocess compressor (getf frame :payload))))))
     (t (e) (connection-error connection :type :compression-error :msg e))))
-
-(defmethod flow-control-allowed-p ((connection connection))
-  "Once disabled, no further flow control operations are permitted."
-  (with-slots (window-limit) connection
-    (when (= window-limit +infinity)
-      (connection-error connection :type :flow-control-error))))
 
 (defmethod activate-stream ((connection connection) id priority &optional parent)
   "Activates new incoming or outgoing stream and registers appropriate
@@ -379,7 +357,8 @@ connection management callbacks."
       (connection-error connection :msg "Stream ID already exists"))
 
     (let ((stream (make-instance 'stream :id id :priority priority
-				 :window window-limit :parent parent)))
+				 :window window-limit :parent parent
+				 :connection connection)))
 
       ; Streams that are in the "open" state, or either of the "half closed"
       ; states count toward the maximum number of streams that an endpoint is
@@ -391,6 +370,40 @@ connection management callbacks."
       (on stream :frame (lambda-apply (send connection)))
 
       (setf (gethash id streams) stream))))
+
+(defmethod pump-stream-queues ((connection connection) n)
+  (with-slots (streams) connection
+    (loop
+       with pending = (the boolean nil)  ; will set to t if any streams have queues or dependencies left at end
+       with pump-these = (make-array 16 :element-type 'stream :fill-pointer 0)  ; entertain 16 streams at max in one pass
+       for stream being the hash-values of streams
+       when (queue-populated-p stream)
+       if (stream-dependency stream)
+       do (setf pending t)
+       else
+       do (or (vector-push stream pump-these) (loop-finish))
+       and minimize (stream-priority stream) into lowest-weight
+       finally (progn
+		 (loop
+		    with lowest-weight/2 = (max (ash lowest-weight -1) 1)
+		    for stream across pump-these
+		    do (progn
+			 ;; send 2 frames for lowest weight and multiples thereupon
+			 (pump-queue stream (round (/ (stream-priority stream) lowest-weight/2)))
+			 ;; remove this stream as dependent stream on all other streams if done
+			 (if (queue-populated-p stream)
+			     (setf pending t)
+			     (loop
+				for other-stream being the hash-values of streams
+				when (eq (stream-dependency other-stream) stream)
+				do (setf (stream-dependency other-stream) nil)))))
+		 (return pending)))))
+
+;; DRAIN-SEND-BUFFER is a FLOW-BUFFER method, but enforce ENCODE when used
+;; on CONNECTION subclass, as we want encoding when calling from here
+(defmethod drain-send-buffer :around ((obj connection) &optional encode)
+  (declare (ignore encode))
+  (call-next-method obj t))
 
 (defmethod connection-error ((connection connection)
 			     &key (type :protocol-error) (msg "Connection error"))
