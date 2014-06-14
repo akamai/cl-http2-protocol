@@ -8,9 +8,9 @@
 (in-package :cl-http2-protocol-asd)
 
 (defsystem :cl-http2-protocol
-  :description "HTTP/2.0 draft-09/hpack-05 implementation with client/server examples.
+  :description "HTTP/2 draft-12/hpack-07 implementation with client/server examples.
 Originally a port of Ruby code by Ilya Grigorik, see: https://github.com/igrigorik/http-2
-For HTTP/2.0 draft-09, see: http://tools.ietf.org/html/draft-ietf-httpbis-http2-09
+For HTTP/2.0 draft-12, see: http://tools.ietf.org/html/draft-ietf-httpbis-http2-12
 For other implementations, see: https://github.com/http2/http2-spec/wiki/Implementations"
   :version "0.6.3"
   :author "Martin Flack"
