@@ -266,9 +266,7 @@ frame addressed to stream ID = 0."
 	 (:settings
 	  (connection-settings connection frame))
 	 (:window-update
-	  (format t "(connection-management ~S): handling a window update frame for increment of ~D in frame ~S~%" connection (getf frame :increment) frame)
 	  (incf window (getf frame :increment))
-	  (format t "(connection-management ~S): upon receiving window update, draining send-buffer~%" connection)
 	  (drain-send-buffer connection))
 	 (:ping
 	  (if (member :ack (getf frame :flags))
@@ -400,6 +398,12 @@ connection management callbacks."
 				when (eq (stream-dependency other-stream) stream)
 				do (setf (stream-dependency other-stream) nil)))))
 		 (return pending)))))
+
+;; DRAIN-SEND-BUFFER is a FLOW-BUFFER method, but enforce ENCODE when used
+;; on CONNECTION subclass, as we want encoding when calling from here
+(defmethod drain-send-buffer :around ((obj connection) &optional encode)
+  (declare (ignore encode))
+  (call-next-method obj t))
 
 (defmethod connection-error ((connection connection)
 			     &key (type :protocol-error) (msg "Connection error"))

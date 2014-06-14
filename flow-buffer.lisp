@@ -63,7 +63,3 @@ Buffered DATA frames are emitted in FIFO order."
 	    (setf frame (encode obj frame)))
 	  (emit obj :frame frame)
 	  (decf window sent))))))
-
-(defmethod drain-send-buffer :around ((obj connection) &optional encode)
-  (declare (ignore encode))
-  (call-next-method obj t))

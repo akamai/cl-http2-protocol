@@ -116,7 +116,7 @@
   (let ((conn (make-instance 'server)))
     (on conn :frame
 	(lambda (bytes)
-	  (format t "transmitting frame now~%")
+	  ; (format t "transmitting frame now~%")
 	  (send-bytes net (buffer-data bytes))))
       
     (on conn :stream

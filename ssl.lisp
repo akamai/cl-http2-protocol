@@ -188,7 +188,7 @@
     (cffi:with-foreign-slots ((data len) arg server-tlsextnextprotoctx)
       (setf tmp-data data
 	    tmp-len len))
-    (format t "lisp-server-next-proto-cb: ~S ~S~%" tmp-data tmp-len)
+    ; (format t "lisp-server-next-proto-cb: ~S ~S~%" tmp-data tmp-len)
     (setf (cffi:mem-ref data :string) tmp-data
 	  (cffi:mem-ref len :unsigned-int) tmp-len))
   +SSL_TLSEXT_ERR_OK+)
