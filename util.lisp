@@ -15,13 +15,17 @@
 	     ((null (cdr ,end)) (setf ,place nil) (car ,end))
 	     (t (prog1 (cadr ,end) (rplacd ,end nil)))))))
 
-(defmacro unshift (place item)
+(defmacro unshift (item place)
   "Like PUSH only at the end of the list designated by PLACE."
   `(setf ,place (nconc ,place (list ,item))))
 
 (defmacro while (test &body body)
   "Execute BODY while TEST is true."
   `(do () ((not ,test)) ,@body))
+
+(defmacro while-max (test n &body body)
+  "Execute BODY while TEST is true, up to N times maximum."
+  `(loop repeat ,n while ,test do (progn ,@body)))
 
 (defmacro while-let ((var-name test) &body body)
   "Execute BODY while TEST is true, binding TEST value to VAR-NAME."

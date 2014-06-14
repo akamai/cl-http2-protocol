@@ -73,6 +73,7 @@
 
 (define-symbol-macro *uint32-msb-reserved* #x7FFFFFFF)
 (define-symbol-macro *uint32-2msb-reserved* #x3FFFFFFF)
+(define-symbol-macro *byte-msb-reserved* #x7F)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defparameter *headerpack* "nBBN")
@@ -299,7 +300,12 @@ does not contain enough data, no further work is performed."
 	   (setf (getf frame :payload) (buffer-read payload size))))
 
 	(:priority
-	 (setf (getf frame :priority) (logand (buffer-read-uint32 payload) *uint32-msb-reserved*)))
+	 (setf (getf frame :exclusive-dependency) (logbitp 7 (buffer-readbyte payload nil)))
+	 (let ((dependency (logand (buffer-read-uint32 payload) *uint32-msb-reserved*)))
+	   (when (= dependency (getf frame :stream))
+	     (raise :http2-protocol-error "Stream cannot depend on itself (~D)" (getf frame :stream)))
+	   (setf (getf frame :stream-dependency) dependency))
+	 (setf (getf frame :weight) (1+ (buffer-readbyte payload))))
 
 	(:rst-stream
 	 (getf frame :error (unpack-error (buffer-read-uint32 payload))))

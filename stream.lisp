@@ -40,8 +40,14 @@
 (defclass stream (flowbuffer-include emitter-include error-include)
   ((id :reader stream-id :initarg :id :type integer
        :documentation "Stream ID (odd for client initiated streams, even otherwise).")
+   (connection :reader stream-connection :initarg :connection :type connection
+	       :documentation "The parent connection of the stream.")
    (priority :reader stream-priority :initarg :priority :type integer
-	     :documentation "Stream priority as set by initiator.")
+	     :initform 0
+	     :documentation "Stream priority weight as set by initiator.")
+   (dependency :accessor stream-dependency :initarg :dependency :type (or null stream)
+	       :initform nil
+	       :documentation "Stream dependency as set by initiator.")
    (window :reader stream-window :initarg :window :type (or integer float)
 	   :documentation "Size of current stream flow control window.")
    (parent :reader stream-parent :initarg :parent :initform nil :type (or null stream)
@@ -56,7 +62,8 @@
    (error :reader stream-error-type :initform nil)
    (closed :reader stream-closed :initform nil
 	   :documentation "Reason why connection was closed.")
-   (send-buffer :initform nil)))
+   (send-buffer :initform nil)
+   (queue :initform nil)))
 
 ; Note that you should never have to call MAKE-INSTANCE directly. To
 ; create a new client initiated stream, use (DEFMETHOD NEW-STREAM
@@ -67,9 +74,23 @@
   (with-slots (window) stream
     (on stream :window (lambda (v) (setf window v)))))
 
+(defmethod update-priority ((stream stream) frame)
+  (with-slots (priority dependency connection) stream
+    (setf priority (getf frame :weight))
+    (let ((dep-id (getf frame :stream-dependency))
+	  (exclusive (getf frame :exclusive-dependency)))
+      (when (and dep-id (plusp dep-id))
+	(with-slots (streams) connection
+	  (when-let ((dep-stream (gethash dep-id streams)))
+	    (dohash (key other-stream streams)
+	      (when (eq (stream-dependency other-stream) dep-stream)
+		(setf (stream-dependency other-stream) stream)))
+	    (setf dependency dep-stream))))
+      (values priority dependency exclusive))))
+
 (defmethod receive ((stream stream) frame)
   "Processes incoming HTTP 2.0 frames. The frames must be decoded upstream."
-  (with-slots (priority window) stream
+  (with-slots (priority dependency window id connection) stream
     (transition stream frame nil)
 
     (case (getf frame :type)
@@ -77,19 +98,20 @@
        (when (not (getf frame :ignore))
 	 (emit stream :data frame)))
       ((:headers :push-promise)
+       (when (member :priority (getf frame :flags))
+	 (update-priority stream frame))
        (if (listp (getf frame :payload))
 	   (when (not (getf frame :ignore))
 	     (emit stream :headers (plist-alist (flatten (getf frame :payload)))))
 	   (when (not (getf frame :ignore))
 	     (emit stream :headers (getf frame :payload)))))
       (:priority
-       (setf priority (getf frame :priority))
-       (emit stream :priority priority))
+       (multiple-value-bind (p d e)
+	   (update-priority stream frame)
+	 (emit stream :priority p d e)))
       (:window-update
-       (format t "(receive ~S): handling a window update frame for increment of ~D in frame ~S~%" stream (getf frame :increment) frame)
        (incf window (getf frame :increment))
-       (format t "(receive ~S): upon receiving window update, draining send-buffer~%" stream)
-       (send-data stream)))
+       (drain-send-buffer stream)))
 
     (complete-transition stream frame)))
 
@@ -102,13 +124,22 @@ control window size."
     (ensuref (getf frame :stream) id)
     
     (when (eq (getf frame :type) :priority)
-      (setf priority (getf frame :priority)))
+      (setf priority (getf frame :weight)))
 
     (if (eq (getf frame :type) :data)
 	(send-data stream frame)
 	(emit stream :frame frame))
 
     (complete-transition stream frame)))
+
+(defmethod enqueue ((stream stream) frame)
+  (assert (or (listp frame) (functionp frame)) (frame) "Frame: ~S" frame)
+  (with-slots (queue) stream
+    (push frame queue)))
+
+(defmethod queue-populated-p ((stream stream))
+  (with-slots (queue) stream
+    (not (null queue))))
 
 (defmethod headers ((stream stream) headers &key (end-headers t) (end-stream nil))
   "Sends a HEADERS frame containing HTTP response headers."
@@ -117,9 +148,9 @@ control window size."
       (push :end-headers flags))
     (when end-stream
       (push :end-stream flags))
-    (send stream (list :type :headers
-		       :flags (nreverse flags)
-		       :payload headers))))
+    (enqueue stream (list :type :headers
+			  :flags (nreverse flags)
+			  :payload headers))))
 
 (defmethod promise ((stream stream) headers &optional (end-headers t) block)
   (when (null block)
@@ -144,9 +175,18 @@ performed by the client)."
     
     (while (> (buffer-size payload) *max-frame-size*)
       (let ((chunk (buffer-slice! payload 0 *max-frame-size*)))
-	(send stream (list :type :data :payload chunk))))
+	(enqueue stream (list :type :data :payload chunk))))
     
-    (send stream (list :type :data :flags flags :payload payload))))
+    (enqueue stream (list :type :data :flags flags :payload payload))))
+
+(defmethod pump-queue ((stream stream) n)
+  (with-slots (queue id) stream
+    (while-max queue n
+      (let ((item (shift queue)))
+	(if (functionp item)
+	    (when (null (funcall item))
+	      (unshift item queue))
+	    (send stream item))))))
 
 (defmethod stream-close ((stream stream) &optional (error :stream-closed)) ; @ ***
   "Sends a RST_STREAM frame which closes current stream - this does not

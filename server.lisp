@@ -35,7 +35,7 @@
 	      (raise :http2-push-disabled "Push disabled, cannot promise: ~A" headers))
 	    t)
     
-      (let ((promise (new-stream server :parent parent)))
+      (let ((promise (new-stream server *default-priority* parent)))
 	(send promise (list :type :push-promise
 			    :flags flags
 			    :stream (stream-id parent)

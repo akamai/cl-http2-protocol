@@ -114,6 +114,13 @@
       (cl+ssl::ssl-error-syscall ()
 	(error 'connection-reset-error :stream socket)))))
 
+(defmethod net-input-ready ((net net-ssl))
+  (with-slots (socket) net
+    (handler-case
+	(cl+ssl::stream-listen socket)
+      (cl+ssl::ssl-error-syscall ()
+	(error 'connection-reset-error :stream socket)))))
+
 (defmethod net-read-vector ((net net-ssl) bytes n)
   (with-slots (socket) net
     (handler-case
@@ -276,6 +283,8 @@
 (defun receive-loop (net conn)
   (handler-case
       (loop
+	 (while (and (http2::pump-stream-queues conn 2)
+		     (not (net-input-ready net))))
 	 (when-let (bytes (receive-bytes net))
 	   (handler-case-unless *debug-mode*
 	       (connection<< conn bytes)

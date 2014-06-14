@@ -8,7 +8,7 @@
   (:nicknames :http2-util)
   (:documentation "Basic utilities.")
   (:use :cl :alexandria :anaphora :babel)
-  (:export #:defalias #:shift #:unshift #:while #:while-let
+  (:export #:defalias #:shift #:unshift #:while #:while-max #:while-let
 	   #:ensuref #:deletef-if #:to-sym #:string-to-bytes
 	   #:flatten-n #:reverse-plist #:dohash
 	   #:+infinity #:-infinity

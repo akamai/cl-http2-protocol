@@ -166,7 +166,7 @@ stream frames are passed to appropriate stream objects."
 		   (when (null stream)
 		     (setf stream (activate-stream connection
 				   (getf frame :stream)
-				   (or (getf frame :priority) *default-priority*)))
+				   (or (getf frame :weight) *default-priority*)))
 		     (emit connection :stream stream))
 
 		   (stream<< stream frame)))
@@ -227,7 +227,7 @@ stream frames are passed to appropriate stream objects."
 control and may be split and / or buffered based on current window size.
 All other frames are sent immediately."
   (if (eq (getf frame :type) :data)
-      (send-data connection frame t)
+      (send-data connection frame)
       ; An endpoint can end a connection at any time. In particular, an
       ; endpoint MAY choose to treat a stream error as a connection error.
       (if (eq (getf frame :type) :rst-stream)
@@ -269,7 +269,7 @@ frame addressed to stream ID = 0."
 	  (format t "(connection-management ~S): handling a window update frame for increment of ~D in frame ~S~%" connection (getf frame :increment) frame)
 	  (incf window (getf frame :increment))
 	  (format t "(connection-management ~S): upon receiving window update, draining send-buffer~%" connection)
-	  (send-data connection nil t))
+	  (drain-send-buffer connection))
 	 (:ping
 	  (if (member :ack (getf frame :flags))
 	      (emit connection :pong (getf frame :payload))
@@ -359,7 +359,8 @@ connection management callbacks."
       (connection-error connection :msg "Stream ID already exists"))
 
     (let ((stream (make-instance 'stream :id id :priority priority
-				 :window window-limit :parent parent)))
+				 :window window-limit :parent parent
+				 :connection connection)))
 
       ; Streams that are in the "open" state, or either of the "half closed"
       ; states count toward the maximum number of streams that an endpoint is
@@ -371,6 +372,34 @@ connection management callbacks."
       (on stream :frame (lambda-apply (send connection)))
 
       (setf (gethash id streams) stream))))
+
+(defmethod pump-stream-queues ((connection connection) n)
+  (with-slots (streams) connection
+    (loop
+       with pending = (the boolean nil)  ; will set to t if any streams have queues or dependencies left at end
+       with pump-these = (make-array 16 :element-type 'stream :fill-pointer 0)  ; entertain 16 streams at max in one pass
+       for stream being the hash-values of streams
+       when (queue-populated-p stream)
+       if (stream-dependency stream)
+       do (setf pending t)
+       else
+       do (or (vector-push stream pump-these) (loop-finish))
+       and minimize (stream-priority stream) into lowest-weight
+       finally (progn
+		 (loop
+		    with lowest-weight/2 = (max (ash lowest-weight -1) 1)
+		    for stream across pump-these
+		    do (progn
+			 ;; send 2 frames for lowest weight and multiples thereupon
+			 (pump-queue stream (round (/ (stream-priority stream) lowest-weight/2)))
+			 ;; remove this stream as dependent stream on all other streams if done
+			 (if (queue-populated-p stream)
+			     (setf pending t)
+			     (loop
+				for other-stream being the hash-values of streams
+				when (eq (stream-dependency other-stream) stream)
+				do (setf (stream-dependency other-stream) nil)))))
+		 (return pending)))))
 
 (defmethod connection-error ((connection connection)
 			     &key (type :protocol-error) (msg "Connection error"))
