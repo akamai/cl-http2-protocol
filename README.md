@@ -165,6 +165,20 @@ sbcl --script <<EOF
 EOF
 ```
 
+Please note that the files `mykey.pem`, `mycert.pem`, and
+`dhparams.2048.pem` are used for the example server, so it is
+recommended that you regenerate them. You will then remove security
+warnings from browsers.
+
+```shell
+openssl genrsa -out mykey.pem 2048
+openssl req -new -key mykey.pem -out mycert.csr
+# CN should be set to the hostname you will use to reach the server
+openssl req -noout -text -in mycert.csr
+openssl x509 -req -days 365 -in mycert.csr -signkey mykey.pem -out mycert.pem
+openssl dhparam -outform pem -out dhparams.2048.pem 2048
+```
+
 At the time of writing (June 13, 2014), Firefox Nightly will be
 compatible with your HTTP/2 server started above as well. To use the
 `:SECURE` keyword and using the default port, the address bar in
