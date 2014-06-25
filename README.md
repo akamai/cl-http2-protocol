@@ -182,8 +182,8 @@ openssl dhparam -outform pem -out dhparams.2048.pem 2048
 At the time of writing (June 13, 2014), Firefox Nightly will be
 compatible with your HTTP/2 server started above as well. To use the
 `:SECURE` keyword and using the default port, the address bar in
-Firefox Nightly should be `https://IP:8080/` where IP is the IP
-address for your server.
+Firefox Nightly should be `https://HOST:8080/` where HOST is the
+hostname used to reach your server.
 
 Getting Started
 ---------------
