@@ -296,8 +296,8 @@ frame addressed to stream ID = 0."
       (connection-error connection :type :frame-size-error))
 
     (when (getf frame :payload)
-      (doplist (key v (getf frame :payload))
-	(connection-setting connection key v))
+      (doplist (key value (getf frame :payload))
+	(connection-setting connection key value))
 
       ; Bit 1 being set indicates that this frame acknowledges
       ; receipt and application of the peer's SETTINGS frame. When this
@@ -305,7 +305,7 @@ frame addressed to stream ID = 0."
       (send connection (list :type :settings :flags '(:ack) :payload nil)))))
 
 (defmethod connection-setting ((connection connection) (key (eql :settings-header-table-size)) value)
-  (setf (table-limit (compressor connection)) value))
+  (setf (settings-limit (compressor connection)) value))
 
 ; this will be overridden for server class
 (defmethod connection-setting ((connection connection) (key (eql :settings-enable-push)) value)

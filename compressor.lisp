@@ -79,114 +79,87 @@
   ((type :initarg :type)
    (table :reader table :initform nil
 	  :documentation "Running set of headers used as a compression dictionary, in addition to *STATIC-TABLE*.")
-   (limit :accessor table-limit :initarg :limit :initform 4096)
+   (settings-limit :accessor settings-limit :initarg :settings-limit :initform 4096)
+   (limit :accessor limit :initarg :limit :initform 4096)
    (refset :reader refset :initform (make-array 128 :element-type t :adjustable t :fill-pointer 0)
 	   :documentation "Headers carried over request-to-request and manipulated by compressed header frames."))
   (:documentation "Encoding context: a header table and reference set for one direction"))
 
+(defmethod initialize-instance :after ((encoding-context encoding-context) &key)
+  (with-slots (settings-limit limit) encoding-context
+    (unless limit
+      (setf limit settings-limit))))
+
 (defmethod process ((encoding-context encoding-context) cmd)
   "Performs differential coding based on provided command type.
 - http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-03#section-3.2"
-  (with-slots (refset table) encoding-context
+  (with-slots (refset table settings-limit limit) encoding-context
     (let (emit evicted)
 
-      ; indexed representation
-      (if (eq (getf cmd :type) :indexed)
-	  ; An indexed representation with an index value of 0 entails the
-	  ; following actions:
-	  ; - The reference set is emptied.
-	  ;
-	  ; An indexed representation corresponding to an entry not present
-	  ; in the reference set entails the following actions:
-	  ;
-	  ; - If referencing an element of the static table:
-	  ;   - The header field corresponding to the referenced entry is
-	  ;     emitted.
-	  ;
-	  ;   - The referenced static entry is inserted at the beginning of the
-	  ;     header table.
-	  ;
-	  ;   - A reference to this new header table entry is added to the
-	  ;     reference set (except if this new entry didn't fit in the
-	  ;     header table).
-	  ;
-	  ; - If referencing an element of the header table:
-	  ;   - The header field corresponding to the referenced entry is
-	  ;     emitted.
-	  ;
-	  ; - The referenced header table entry is added to the reference
-	  ;   set.
-	  ;
-	  ; An indexed representation corresponding to an entry not present
-	  ; in the reference set entails the following actions:
-	  ; - The header corresponding to the entry is emitted.
-	  ; - The entry is added to the reference set.
-	  ;
-	  ; An indexed representation corresponding to an entry present in
-	  ; the reference set entails the following actions:
-	  ;  - The entry is removed from the reference set.
-	  ; 
-	  (let ((idx1 (getf cmd :name)))  ; 1-based index but 0 is a special value
-	    (declare ((integer 0 *) idx1))
-	    (if (zerop idx1)
-		(setf (fill-pointer refset) 0)
-
-		(let* ((idx (1- idx1))
-		       (cur (position idx refset :key #'car)))
-		  (if cur
-		      (vector-delete-at refset cur)
-		      (let ((length-table (length table)))
-			(if (>= idx length-table)
-			    (progn
-			      (setf emit (elt *static-table* (- idx length-table)))
-			      (multiple-value-bind (ok-to-add this-evicted)
-				  (size-check encoding-context (list :name (car emit) :value (cdr emit)))
-				(when ok-to-add
-				  (push emit table)
-				  (loop for r across refset do (incf (car r)))
-				  (vector-push-extend (cons 0 emit) refset))
-				(when this-evicted
-				  (setf evicted this-evicted))))
-			    (progn
-			      (setf emit (elt table idx))
-			      (vector-push-extend (cons idx emit) refset))))))))
-
-	  ; A literal representation that is not added to the header table
-	  ; entails the following action:
-	  ;  - The header is emitted.
-	  ;
-	  ; A literal representation that is added to the header table entails
-	  ; the following actions:
-	  ;  - The header is emitted.
-	  ;  - The header is inserted at the beginning of the header table.
-	  ;  - A reference to the new entry is added to the reference set
-	  ;    (except if this new entry didn't fit in the header table).
-	  ;
-	  (let ((cmd (copy-tree cmd)))
-	    
-	    (when (integerp (getf cmd :name))
-	      (ensuref (getf cmd :index) (getf cmd :name))
-	      (let ((idx1 (getf cmd :index)))
+      (if (eq (getf cmd :type) :context)
+	  (case (getf cmd :context-type)
+	    (:reset
+	     (setf evicted (map 'list #'car refset)
+		   (fill-pointer refset) 0))
+	    (:new-max-size
+	     (when (> (getf cmd :value) settings-limit)
+	       (raise 'http2-compression-error "Attempt to set table limit above SETTINGS_HEADER_TABLE_SIZE."))
+	     (setf limit (getf cmd :value))
+	     (size-check encoding-context nil)))
+	  
+	  (if (eq (getf cmd :type) :indexed)
+	      ;; indexed representation
+	      (let ((idx1 (getf cmd :name))) ; 1-based index but 0 is a special value
 		(declare ((integer 0 *) idx1))
-		(let* ((idx (1- idx1))
-		       (length-table (length table))
-		       (entry (if (>= idx length-table)
-				  (elt *static-table* (- idx length-table))
-				  (elt table idx))))
-		  (setf (getf cmd :name) (car entry))
-		  (ensuref (getf cmd :value) (cdr entry)))))
+		(if (zerop idx1)
+		    (setf (fill-pointer refset) 0)
 
-	    (setf emit (cons (getf cmd :name) (getf cmd :value)))
+		    (let* ((idx (1- idx1))
+			   (cur (position idx refset :key #'car)))
+		      (if cur
+			  (vector-delete-at refset cur)
+			  (let ((length-table (length table)))
+			    (if (>= idx length-table)
+				(progn
+				  (setf emit (elt *static-table* (- idx length-table)))
+				  (multiple-value-bind (ok-to-add this-evicted)
+				      (size-check encoding-context (list :name (car emit) :value (cdr emit)))
+				    (when ok-to-add
+				      (push emit table)
+				      (loop for r across refset do (incf (car r)))
+				      (vector-push-extend (cons 0 emit) refset))
+				    (when this-evicted
+				      (setf evicted this-evicted))))
+				(progn
+				  (setf emit (elt table idx))
+				  (vector-push-extend (cons idx emit) refset))))))))
+
+	      ;; literal representation
+	      (let ((cmd (copy-tree cmd)))
+	    
+		(when (integerp (getf cmd :name))
+		  (ensuref (getf cmd :index) (getf cmd :name))
+		  (let ((idx1 (getf cmd :index)))
+		    (declare ((integer 0 *) idx1))
+		    (let* ((idx (1- idx1))
+			   (length-table (length table))
+			   (entry (if (>= idx length-table)
+				      (elt *static-table* (- idx length-table))
+				      (elt table idx))))
+		      (setf (getf cmd :name) (car entry))
+		      (ensuref (getf cmd :value) (cdr entry)))))
+
+		(setf emit (cons (getf cmd :name) (getf cmd :value)))
 	      
-	    (when (eq (getf cmd :type) :incremental)
-	      (multiple-value-bind (ok-to-add this-evicted)
-		  (size-check encoding-context (list :name (car emit) :value (cdr emit)))
-		(when ok-to-add
-		  (push emit table)
-		  (loop for r across refset do (incf (car r)))
-		  (vector-push-extend (cons 0 emit) refset))
-		(when this-evicted
-		  (setf evicted this-evicted))))))
+		(when (eq (getf cmd :type) :incremental)
+		  (multiple-value-bind (ok-to-add this-evicted)
+		      (size-check encoding-context (list :name (car emit) :value (cdr emit)))
+		    (when ok-to-add
+		      (push emit table)
+		      (loop for r across refset do (incf (car r)))
+		      (vector-push-extend (cons 0 emit) refset))
+		    (when this-evicted
+		      (setf evicted this-evicted)))))))
 
       (values emit evicted))))
 
@@ -225,7 +198,10 @@ A consequence of removing one or more entries at the beginning of the
 header table is that the remaining entries are renumbered.  The first
 entry of the header table is always associated to the index 1."
   (with-slots (table limit refset) encoding-context
-    (flet ((entry-size (header) (+ (length (car header)) (length (cdr header)) 32)))
+    (flet ((entry-size (header)
+	     (if (null header)  ; for limit resize commands
+		 0
+		 (+ (length (car header)) (length (cdr header)) 32))))
       (let ((cursize (loop for header in table sum (entry-size header)))
 	    (cmdsize (entry-size (cons (getf cmd :name) (getf cmd :value))))
 	    ok-to-add
@@ -265,12 +241,17 @@ entry of the header table is always associated to the index 1."
   '(:indexed      (:prefix 7 :pattern #x80)
     :noindex      (:prefix 4 :pattern #x00)
     :incremental  (:prefix 6 :pattern #x40)
-    :neverindex   (:prefix 4 :pattern #x10))
+    :neverindex   (:prefix 4 :pattern #x10)
+    :context      (:prefix 5 :pattern #x20))
   "Header representation as defined by the spec.")
 
 (defparameter *resetrep*
   '(:reset        (:prefix 7 :pattern #x80)
     :new-max-size (:prefix 7 :pattern #x00)))
+
+(defparameter *contextrep*
+  '(:reset        (:prefix 4 :pattern #x10)
+    :new-max-size (:prefix 4 :pattern #x00)))
 
 ; Responsible for encoding header key-value pairs using HPACK algorithm.
 ; Compressor must be initialized with appropriate starting context based
@@ -333,23 +314,23 @@ entry of the header table is always associated to the index 1."
     (let ((rep (getf *headrep* (getf h :type))))
       (macrolet ((firstinteger (&rest cmd) `(<<integer+ ,@(cdar cmd) (getf rep :pattern))))
 
-	(if (eq (getf h :type) :indexed)
-	    (progn
-	      (firstinteger (<<integer (getf h :name) (getf rep :prefix)))
-	      (when (zerop (getf h :name))
-		(let ((rrep (getf *resetrep* :reset)))
-		  (<<integer+ 0 (getf rrep :prefix) (getf rrep :pattern)))))
+	(if (eq (getf h :type) :context)
+	    (let ((crep (getf *contextrep* (getf h :context-type))))
+	      (firstinteger (+pattern (<<integer (or (getf h :value) 0) (getf crep :prefix)) (getf crep :pattern))))
 
-	    (progn
-	      (if (integerp (getf h :name))
-		  (firstinteger (<<integer (getf h :name) (getf rep :prefix)))
-		  (progn
-		    (firstinteger (<<integer 0 (getf rep :prefix)))
-		    (<<string (getf h :name))))
+	    (if (eq (getf h :type) :indexed)
+		(firstinteger (<<integer (getf h :name) (getf rep :prefix)))
+
+		(progn
+		  (if (integerp (getf h :name))
+		      (firstinteger (<<integer (getf h :name) (getf rep :prefix)))
+		      (progn
+			(firstinteger (<<integer 0 (getf rep :prefix)))
+			(<<string (getf h :name))))
 	    
-	      (if (integerp (getf h :value))
-		  (<<integer (getf h :value) 0)
-		  (<<string (getf h :value))))))))
+		  (if (integerp (getf h :value))
+		      (<<integer (getf h :value) 0)
+		      (<<string (getf h :value)))))))))
 
   buffer)
 
@@ -496,7 +477,7 @@ entry of the header table is always associated to the index 1."
   "Decodes header command from provided buffer."
   (let ((peek (buffer-getbyte buf nil)))
 
-    (let (type)
+    (let (type regular-p)
       (loop
 	 for (tt desc) on *headrep* by #'cddr
 	 for prefix = (getf desc :prefix)
@@ -504,15 +485,32 @@ entry of the header table is always associated to the index 1."
 	 if (= mask (getf desc :pattern))
 	 do (progn
 	      (setf (getf header :type) tt
+		    regular-p (not (eq tt :context))
 		    type desc)
 	      (return)))
 
-      (setf (getf header :name) (@integer decompressor buf (getf type :prefix)))
-      (when (not (eq (getf header :type) :indexed))
-	(when (zerop (getf header :name))
-	  (setf (getf header :name) (@string decompressor buf)))
+      (if regular-p
+	  (progn
+	    (setf (getf header :name) (@integer decompressor buf (getf type :prefix)))
+	    (when (not (eq (getf header :type) :indexed))
+	      (when (zerop (getf header :name))
+		(setf (getf header :name) (@string decompressor buf)))
+	      (setf (getf header :value) (@string decompressor buf))))
 
-	(setf (getf header :value) (@string decompressor buf)))
+	  ;; else context update (:reset/:new-max-size):
+	  (let ((peek-short (logand peek (1- (expt 2 (getf type :prefix)))))
+		ctype)
+	    (setf (getf header :type) :context)
+	    (loop
+	       for (ct cdesc) on *contextrep* by #'cddr
+	       for prefix = (getf cdesc :prefix)
+	       for mask = (ash (ash peek-short (- prefix)) prefix)
+	       if (= mask (getf cdesc :pattern))
+	       do (progn
+		    (setf (getf header :context-type) ct
+			  ctype cdesc)
+		    (return)))
+	    (setf (getf header :value) (@integer decompressor buf (getf ctype :prefix)))))
 
       header)))
 

@@ -149,7 +149,7 @@ sbcl --script <<EOF
 (load "cl-http2-protocol/cl-http2-protocol.asd")
 (require :cl-http2-protocol)
 (in-package :http2-example)
-(example-server :secure t)
+(example-server :secure t :port 8080)
 EOF
 # now you have an HTTP/2 server on port 8080
 # note, any exception will cause it to exit

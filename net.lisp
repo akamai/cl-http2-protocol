@@ -26,12 +26,13 @@
 (defparameter *key-pathname* (merge-pathnames "cl-http2-protocol/" (user-homedir-pathname)))
 (defparameter *server-key-file* (merge-pathnames "mykey.pem" *key-pathname*))
 (defparameter *server-cert-file* (merge-pathnames "mycert.pem" *key-pathname*))
+(defparameter *dhparams-file* (merge-pathnames "dhparams.2048.pem" *key-pathname*))
 
 (defparameter *next-protos-spec* '("h2-12"))
 
-(defparameter *dump-bytes* nil)
-(defparameter *dump-bytes-stream* t)
-(defparameter *dump-bytes-base* 16)  ; 10 for decimal, 16 for hexadecimal
+(defparameter *dump-bytes* t)         ; t or nil
+(defparameter *dump-bytes-stream* t)  ; t for stdout, or a stream
+(defparameter *dump-bytes-base* 10)   ; 10 for decimal, 16 for hexadecimal
 (defparameter *dump-bytes-hook* nil)  ; nil or 'vector-inspect make sense
 
 (defclass net ()
@@ -43,7 +44,9 @@
 
 (defclass net-ssl (net)
   ((cert-file :initarg :cert-file :initform *server-cert-file*)
-   (key-file :initarg :key-file :initform *server-key-file*))
+   (key-file :initarg :key-file :initform *server-key-file*)
+   (dhparams-file :initarg :dhparams-file :initform *dhparams-file*)
+   (sni-host :initarg :servername :initform nil))
   (:documentation "CL+SSL wrapping USOCKET"))
 
 (defmethod net-socket-listen ((net net-ssl) host port)
@@ -59,13 +62,14 @@
     (setf raw-socket (socket-accept listener))))
 
 (defmethod net-socket-prepare-server ((net net-ssl))
-  (with-slots (raw-socket socket key-file cert-file) net
+  (with-slots (raw-socket socket key-file cert-file dhparams-file) net
     (setf socket (cl+ssl:make-ssl-server-stream
 		  (stream-fd (socket-stream raw-socket))
 		  :key (namestring key-file)
 		  :certificate (namestring cert-file)
-		  :close-callback (lambda-ignore (socket-close raw-socket))
-		  :next-protos-spec *next-protos-spec*))
+		  :dhparams (namestring dhparams-file)
+		  :next-protos-spec *next-protos-spec*
+		  :close-callback (lambda-ignore (socket-close raw-socket))))
     (let ((npn (cl+ssl::get-next-proto-negotiated socket)))
       (unless (member npn *next-protos-spec* :test #'string=)
 	(error 'http2-not-started :other-protocol npn
@@ -73,18 +77,24 @@
 	       :format-arguments (list npn *next-protos-spec*))))))
 
 (defmethod net-socket-connect ((net net-ssl) host port)
-  (with-slots (raw-socket) net
-    (setf raw-socket (socket-connect host port
+  (with-slots (raw-socket sni-host) net
+    (setf sni-host host
+	  raw-socket (socket-connect host port
 				     :protocol :stream
 				     :element-type '(unsigned-byte 8)
 				     :timeout 10))))
 
+(defmethod net-socket-peer ((net net-ssl))
+  (with-slots (raw-socket) net
+    (values (get-peer-address raw-socket) (get-peer-port raw-socket))))
+
 (defmethod net-socket-prepare-client ((net net-ssl))
-  (with-slots (raw-socket socket) net
+  (with-slots (raw-socket socket sni-host) net
     (setf socket (cl+ssl:make-ssl-client-stream
 		  (stream-fd (socket-stream raw-socket))
 		  :close-callback (lambda-ignore (socket-close raw-socket))
-		  :next-protos-spec *next-protos-spec*))
+		  :next-protos-spec *next-protos-spec*
+		  :servername sni-host))
     (let ((npn (cl+ssl::get-next-proto-negotiated socket)))
       (unless (member npn *next-protos-spec* :test #'string=)
 	(error 'http2-not-started :other-protocol npn
@@ -162,6 +172,10 @@
 					     :element-type '(unsigned-byte 8)
 					     :timeout 10))))
 
+(defmethod net-socket-peer ((net net-plain-usocket))
+  (with-slots (raw-socket) net
+    (values (get-peer-address raw-socket) (get-peer-port raw-socket))))
+
 (defmethod net-prepare-client ((net net-plain-usocket))
   (with-slots (raw-socket socket) net
     (setf socket (usocket:socket-stream raw-socket))))
@@ -220,11 +234,15 @@
     (with-slots (raw-socket socket) net
       (setf socket raw-socket)))
 
-  (defmethod net-socket-client ((net net-plain-sb-bsd-sockets) host port)
+  (defmethod net-socket-connect ((net net-plain-sb-bsd-sockets) host port)
     (with-slots (raw-socket) net
       (let ((client (make-instance 'sb-bsd-sockets:inet-socket :type :stream :protocol :tcp)))
 	(sb-bsd-sockets:socket-connect client host port)
 	(setf raw-socket client))))
+
+  (defmethod net-socket-peer ((net net-plain-sb-bsd-sockets))
+    (with-slots (raw-socket) net
+      (sb-bsd-sockets:socket-peername raw-socket)))
 
   (defmethod net-socket-prepare-client ((net net-plain-sb-bsd-sockets))
     (with-slots (raw-socket socket) net

@@ -22,7 +22,9 @@
   (format t "About to connect socket to ~A port ~A...~%"
 	  (uri-host uri) (or (uri-port uri) 443))
   (net-socket-connect net (uri-host uri) (or (uri-port uri) (if (eq (uri-scheme uri) :https) 443 80)))
-  (format t "Connected!~%")
+  (multiple-value-bind (address port) (net-socket-peer net)
+    ;; the usocket forms here are generic enough to work on addresses from the other libraries too
+    (format t "Connected to ~A:~A!~%" (usocket:hbo-to-dotted-quad (usocket:ip-from-octet-buffer address)) port))
   (unwind-protect
        (progn
 	 (net-socket-prepare-client net)
@@ -64,18 +66,22 @@
 	    (format t "response data chunk: <<~A>>~%" (buffer-string (getf d :payload)))))
 
       (let ((head `((":scheme" . ,(string-downcase (string (uri-scheme uri))))
-		    (":method" . "get")
-		    (":host"   . ,(format nil "~A:~A" (uri-host uri) (or (uri-port uri) 80)))
+		    (":method" . "GET")
+		    (":authority" . ,(if (= (or (uri-port uri) 80) 80)
+					 (uri-host uri)
+					 (format nil "~A:~A" (uri-host uri) (or (uri-port uri) 80))))
 		    (":path"   . ,(or (uri-path uri) "/"))
-		    ("accept"  . "*/*"))))
-	(format t "Sending HTTP 2.0 request~%")
-	(headers stream head :end-stream t))
+		    ("accept"  . "*/*")
+		    ("user-agent" . "HTTP/2 Common Lisp Test Agent"))))
+	(format t "Sending HTTP 2.0 request~%~S~%" head)
+	(headers stream head :end-headers t :end-stream t))
 
       (receive-loop net conn))))
 
 (defun example-server (&key (interface "0.0.0.0") (port 8080)
 			 (net nil net-arg-p) net-options (secure nil secure-arg-p)
-			 request-handler)
+			 request-handler
+			 (debug *debug-mode*))
   (assert (or (not net-arg-p) (not secure-arg-p)) (net secure) "Provide either :NET or :SECURE")
   (ensuref net (apply #'make-instance (if secure
 					  'net-ssl
@@ -83,21 +89,22 @@
 					  #-sbcl 'net-plain-usocket)
 		      net-options))
   (assert (typep net 'net) (net) ":NET object must be of type NET")
-  (handler-case
-      (progn
-	(format t "Starting server on port ~D~%" port)
-	(net-socket-listen net interface port)
-	(unwind-protect
-	     (loop
-		(handler-case-unless *debug-mode*
-		    (example-server-inner net request-handler)
-		  (t (e)
-		     (report-error e)
-		     (net-socket-close net))))
-	  (net-socket-close net)
-	  (net-socket-shutdown net)))
-    (address-in-use-error ()
-      (format t "Address already in use.~%"))))
+  (let ((*debug-mode* debug))
+    (handler-case
+	(progn
+	  (format t "Starting server on port ~D~%" port)
+	  (net-socket-listen net interface port)
+	  (unwind-protect
+	       (loop
+		  (handler-case-unless *debug-mode*
+		      (example-server-inner net request-handler)
+		    (t (e)
+		       (report-error e)
+		       (net-socket-close net))))
+	    (net-socket-close net)
+	    (net-socket-shutdown net)))
+      (address-in-use-error ()
+	(format t "Address already in use.~%")))))
 
 (defun example-server-inner (net request-handler)
   (net-socket-accept net)
@@ -137,7 +144,7 @@
 	    (on stream :headers
 		(lambda (h)
 		  (setf req h)
-		  ; (format t "request headers: ~S~%" h)
+		  (format t "request headers: ~S~%" h)
 		  ))
 	      
 	    (on stream :data
