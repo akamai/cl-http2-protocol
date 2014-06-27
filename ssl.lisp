@@ -275,7 +275,7 @@
       (setf *dh2048* (cffi:null-pointer)))
     (unwind-protect
 	 (progn
-	   (setf *dh2048* (pem-read-bio-dhparams bp nil nil nil))
+	   (setf *dh2048* (pem-read-bio-dhparams bp (cffi:null-pointer) (cffi:null-pointer) (cffi:null-pointer)))
 	   (when (cffi:null-pointer-p *dh2048*)
 	     (error "Error reading DH 2048 parameters")))
       (bio-free bp)))

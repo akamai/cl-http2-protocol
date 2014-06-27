@@ -127,23 +127,29 @@ instructions. A non-root user of "ubuntu" with sudo access is assumed.
 
 ```shell
 sudo apt-get update && sudo apt-get dist-upgrade -y && sudo reboot
-# if prompted about grub choose "install package maintainer's version"
+# ...if prompted about grub choose "install package maintainer's version"
 #
-# copy files to server under ~ubuntu/cl-http2-protocol
-# log in again
-sudo apt-get install -y sbcl
+# ...login again
+sudo apt-get install -y git sbcl
+git clone https://github.com/akamai/cl-http2-protocol.git
 wget http://beta.quicklisp.org/quicklisp.lisp
 sbcl --script <<EOF
 (load "quicklisp.lisp")
 (quicklisp-quickstart:install)
 (ql:quickload :swank)
 (ql:quickload :alexandria)
+(ql:quickload :anaphora)
 (ql:quickload :babel)
 (ql:quickload :puri)
 (ql:quickload :usocket)
 (ql:quickload :cl+ssl)
 EOF
-# and this one starts the server:
+#
+# ...optionally run screen if you're familiar with it and you want to
+# quickly test server/client on one system:
+screen
+#
+# ...start the server:
 sbcl --script <<EOF
 (load "quicklisp/setup.lisp")
 (load "cl-http2-protocol/cl-http2-protocol.asd")
@@ -151,11 +157,22 @@ sbcl --script <<EOF
 (in-package :http2-example)
 (example-server :secure t :port 8080)
 EOF
-# now you have an HTTP/2 server on port 8080
-# note, any exception will cause it to exit
-# EXAMPLE-SERVER accepts a :port keyword as well
 #
-# this will run a client (you can use screen to do both):
+# ...now you have an HTTP/2 server on port 8080
+#
+# ...to stop the server, ctrl+c followed by ABORT at the handler
+#
+# ...if you prefer to have less output and keep exceptions from
+# stopping the program, break the server, set these globals and rerun
+# the server:
+(setf *debug-mode* nil)
+(setf *dump-bytes* nil)
+(example-server :secure t :port 8080)
+#
+# ...if you ran screen, press ctrl-a ctrl-c, else open a new terminal
+# to the server in order to run the example client
+#
+# ...run a client:
 sbcl --script <<EOF
 (load "quicklisp/setup.lisp")
 (load "cl-http2-protocol/cl-http2-protocol.asd")
@@ -168,7 +185,8 @@ EOF
 Please note that the files `mykey.pem`, `mycert.pem`, and
 `dhparams.2048.pem` are used for the example server, so it is
 recommended that you regenerate them. You will then remove security
-warnings from browsers.
+warnings from real browsers. Please note that `EXAMPLE-CLIENT` does
+absolutely no sensible checking of the TLS certificate, etc.
 
 ```shell
 openssl genrsa -out mykey.pem 2048

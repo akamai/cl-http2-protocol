@@ -81,7 +81,8 @@
 (defun example-server (&key (interface "0.0.0.0") (port 8080)
 			 (net nil net-arg-p) net-options (secure nil secure-arg-p)
 			 request-handler
-			 (debug *debug-mode*))
+			 (debug-mode *debug-mode*)
+			 (dump-bytes *dump-bytes*))
   (assert (or (not net-arg-p) (not secure-arg-p)) (net secure) "Provide either :NET or :SECURE")
   (ensuref net (apply #'make-instance (if secure
 					  'net-ssl
@@ -89,7 +90,8 @@
 					  #-sbcl 'net-plain-usocket)
 		      net-options))
   (assert (typep net 'net) (net) ":NET object must be of type NET")
-  (let ((*debug-mode* debug))
+  (let ((*debug-mode* debug-mode)
+	(*dump-bytes* dump-bytes))
     (handler-case
 	(progn
 	  (format t "Starting server on port ~D~%" port)
