@@ -198,15 +198,76 @@
      (out (:pointer (:pointer :unsigned-char))) (outlen (:pointer :unsigned-char))
      (in (:pointer :unsigned-char)) (inlen :unsigned-int) (arg :pointer))
   (declare (ignore s))
+  (format t "Inside lisp-client-next-proto-cb~%")
   (cffi:with-foreign-slots ((data len status) arg (:struct client-tlsextnextprotoctx))
     (cffi:with-foreign-string (data* data)
       (setf status (ssl-select-next-proto out outlen in inlen data* len))))
   +SSL_TLSEXT_ERR_OK+)
 
+(cffi:defcfun ("SSL_CTX_callback_ctrl" ssl-ctx-callback-ctrl)
+    :long
+  (ctx ssl-ctx)
+  (cmd :int)
+  (fp :pointer))
+
+(defconstant +SSL_CTRL_SET_TLSEXT_SERVERNAME_CB+ 53)
+(defconstant +SSL_CTRL_SET_TLSEXT_SERVERNAME_ARG+ 54)
+(defconstant +SSL_CTRL_SET_TLSEXT_HOSTNAME+ 55)
+
+(defmacro ssl-ctx-set-tlsext-servername-callback (ctx cb)
+  `(ssl-ctx-callback-ctrl ,ctx +SSL_CTRL_SET_TLSEXT_SERVERNAME_CB+ ,cb))
+
+(defmacro ssl-ctx-set-tlsext-servername-arg (ctx arg)
+  `(ssl-ctx-ctrl ,ctx +SSL_CTRL_SET_TLSEXT_SERVERNAME_ARG+ 0 ,arg))
+
+(defmacro ssl-set-tlsext-host-name (s name)
+  `(ssl-ctrl ,s +SSL_CTRL_SET_TLSEXT_HOSTNAME+ +TLSEXT_NAMETYPE_host_name+ ,name))
+
+(cffi:defcstruct tlsextctx
+  (biodebug bio-pointer)
+  (ack :int))
+
+(cffi:defcfun ("SSL_get_servername" ssl-get-servername)
+    (:pointer :char)
+  (s ssl-pointer)
+  (type :int))
+
+(cffi:defcfun ("SSL_get_servername_type" ssl-get-servername-type)
+    :int
+  (s ssl-pointer))
+
+(cffi:defcfun ("SSL_ctrl" ssl-ctrl)
+    :long
+  (s ssl-pointer)
+  (cmd :int)
+  (larg :long)
+  (parg :pointer))
+
+(defconstant +SSL_CTRL_GET_SESSION_REUSED+ 8)
+
+(defmacro ssl-session-reused (s)
+  `(ssl-ctrl ,s +SSL_CTRL_GET_SESSION_REUSED+ 0 (cffi:null-pointer)))
+
+(defconstant +TLSEXT_NAMETYPE_host_name+ 0)
+
+(cffi:defcallback lisp-ssl-servername-cb :int
+    ((s ssl-pointer)
+     (ad (:pointer :int))
+     (arg :pointer))
+  (declare (ignore ad))
+  (format t "lisp-ssl-servername-cb~%")
+  (cffi:with-foreign-slots ((ack) arg (:struct tlsextctx))
+    (let ((hn (ssl-get-servername s +TLSEXT_NAMETYPE_host_name+)))
+      (if (/= (ssl-get-servername-type s) -1)
+	  (setf ack (if (and (zerop (ssl-session-reused s))
+			     (not (cffi:null-pointer-p hn))) 1 0))
+	  (format t "Can't use SSL_get_servername~%"))
+      +SSL_TLSEXT_ERR_OK+)))
+
 (defparameter *dh2048* (cffi:null-pointer))
 
-(defun init-dhparams ()
-  (let ((bp (bio-new-file "/home/ubuntu/cl-http2-protocol/ec2-50-17-118-144.compute-1.amazonaws.com.2048.dhparam" "r")))
+(defun init-dhparams (filename)
+  (let ((bp (bio-new-file filename "r")))
     (when (cffi:null-pointer-p bp)
       (error "Error opening DH 2048 file"))
     (when *dh2048*
@@ -214,7 +275,7 @@
       (setf *dh2048* (cffi:null-pointer)))
     (unwind-protect
 	 (progn
-	   (setf *dh2048* (pem-read-bio-dhparams bp nil nil nil))
+	   (setf *dh2048* (pem-read-bio-dhparams bp (cffi:null-pointer) (cffi:null-pointer) (cffi:null-pointer)))
 	   (when (cffi:null-pointer-p *dh2048*)
 	     (error "Error reading DH 2048 parameters")))
       (bio-free bp)))
@@ -226,7 +287,7 @@
      (keylength :int))
   (declare (ignore ssl is-export))
   (if (= keylength 2048)
-      (if (cffi:null-pointer-p *dh2048*) (init-dhparams) *dh2048*)
+      *dh2048*  ; set by init-dhparams called by make-ssl-server-stream
       (cffi:null-pointer)))
 
 (defun pack-next-protos-spec (next-protos-spec)
@@ -240,11 +301,12 @@
 ; add NPN support
 (defun make-ssl-client-stream
     (socket &key certificate key password (method 'ssl-v23-method) external-format
-     close-callback (unwrap-stream-p t) next-protos-spec)
+     close-callback (unwrap-stream-p t) servername next-protos-spec)
   "Returns an SSL stream for the client socket descriptor SOCKET.
 CERTIFICATE is the path to a file containing the PEM-encoded certificate for
  your client. KEY is the path to the PEM-encoded key for the client, which
 may be associated with the passphrase PASSWORD."
+  (format t "make-ssl-client-stream overridden~%")
   (ensure-initialized :method method)
   (let ((stream (make-instance 'ssl-stream
 			       :socket socket
@@ -264,7 +326,19 @@ may be associated with the passphrase PASSWORD."
 	    (ssl-ctx-set-next-proto-select-cb *ssl-global-context*
 					      (cffi:callback lisp-client-next-proto-cb)
 					      arg)
-	    (ensure-ssl-funcall stream handle #'ssl-connect handle)))))
+
+	    (if servername
+		(cffi:with-foreign-object (sni '(:struct tlsextctx))
+		  (cffi:with-foreign-slots ((biodebug) sni (:struct tlsextctx))
+		    (setf biodebug (cffi:null-pointer))
+		    (ssl-ctx-set-tlsext-servername-callback *ssl-global-context*
+							    (cffi:callback lisp-ssl-servername-cb))
+		    (ssl-ctx-set-tlsext-servername-arg *ssl-global-context*
+						       sni)
+		    (cffi:with-foreign-string (servername* servername)
+		      (ssl-set-tlsext-host-name handle servername*)
+		      (ensure-ssl-funcall stream handle #'ssl-connect handle))))
+		(ensure-ssl-funcall stream handle #'ssl-connect handle))))))
 
     (when (ssl-check-verify-p)
       (ssl-stream-check-verify stream))
@@ -272,7 +346,7 @@ may be associated with the passphrase PASSWORD."
 
 ; add NPN support
 (defun make-ssl-server-stream
-    (socket &key certificate key password (method 'ssl-v23-method) external-format
+    (socket &key certificate key dhparams password (method 'ssl-v23-method) external-format
      close-callback (unwrap-stream-p t)
      (cipher-list *default-cipher-list*)
      next-protos-spec)
@@ -294,6 +368,8 @@ may be associated with the passphrase PASSWORD."
       (error 'ssl-error-initialize :reason "Can't set SSL cipher list"))
     (with-pem-password (password)
       (install-key-and-cert handle key certificate))
+    (when dhparams
+      (init-dhparams dhparams))
 
     (let ((nps (pack-next-protos-spec next-protos-spec)))
       (cffi:with-foreign-object (arg '(:struct server-tlsextnextprotoctx))

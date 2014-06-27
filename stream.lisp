@@ -180,13 +180,21 @@ performed by the client)."
     (enqueue stream (list :type :data :flags flags :payload payload))))
 
 (defmethod pump-queue ((stream stream) n)
-  (with-slots (queue id) stream
+  (with-slots (queue state) stream
     (while-max queue n
       (let ((item (shift queue)))
 	(if (functionp item)
 	    (when (null (funcall item))
 	      (unshift item queue))
-	    (send stream item))))))
+	    (progn
+	      (send stream item)
+	      ;; most implementations seem to nudge the other side after ending headers
+	      (if (and (endp queue)
+		       (member :end-stream (getf item :flags))
+		       (not (eq state :closed)))
+		  (send stream (list :type :window-update
+				     :flags nil
+				     :increment 1)))))))))
 
 (defmethod stream-close ((stream stream) &optional (error :stream-closed)) ; @ ***
   "Sends a RST_STREAM frame which closes current stream - this does not
@@ -357,9 +365,13 @@ success headers have been sent and the stream is ready for DATA frames."
       ; frame bearing the END_STREAM flag is sent.
       (:half-closed-local
        (if sending
-	   (if (eq (getf frame :type) :rst-stream)
-	       (event stream :local-rst)
-	       (stream-error stream))
+	   (case (getf frame :type)
+	     (:rst-stream
+	      (event stream :local-rst))
+	     (:window-update
+	      nil)
+	     (t
+	      (stream-error stream)))
 	   (case (getf frame :type)
 	     ((:data :headers)
 	      (when (end-stream-p stream frame)

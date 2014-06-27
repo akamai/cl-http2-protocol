@@ -281,6 +281,8 @@
 	   do (setf (bit data j) (ldb (byte 1 b) c)))
      finally (return data)))
 
+;; this is not a particularly fast implementation
+
 (defun huffman-decode (array input-length)
   "Huffman decode by multiple passes on the huffman table."
   (declare (fixnum input-length))
@@ -311,6 +313,8 @@
 
 (defun huffman-decode-buffer-to-string (buffer input-length)
   (babel:octets-to-string (huffman-decode (buffer-data buffer) input-length)))
+
+;; following is code to setup a faster implementation but it makes sbcl crash sometimes
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun huffman-tree (hlist &optional (n 0))
@@ -347,8 +351,7 @@
 		    (setf (fill-pointer data) dp)
 		    (return (values data (- bit-input-length bp))))))))
 
-; sometimes this causes a stack overflow or some such - if so, just
-; comment out, and uncomment slower version of huffman-decode above
+; sometimes this causes a stack overflow or some such:
 ;(def-huffman-decode *huffman-request*)
 
 (defun test-huffman-decode-1 ()
