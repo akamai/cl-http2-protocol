@@ -159,6 +159,7 @@ sbcl --script <<EOF
 EOF
 #
 # ...now you have an HTTP/2 server on port 8080
+# (note the server is ONLY HTTP/2; there is no HTTP/1.1 fallback)
 #
 # ...to stop the server, ctrl+c followed by ABORT at the handler
 #

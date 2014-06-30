@@ -172,29 +172,42 @@ performed by the client)."
   (let (flags)
     (when end-stream
       (push :end-stream flags))
-    
-    (while (> (buffer-size payload) *max-frame-size*)
-      (let ((chunk (buffer-slice! payload 0 *max-frame-size*)))
-	(enqueue stream (list :type :data :payload chunk))))
+
+    (when (bufferp payload)
+      (while (> (buffer-size payload) *max-frame-size*)
+	(let ((chunk (buffer-slice! payload 0 *max-frame-size*)))
+	  (enqueue stream (list :type :data :payload chunk)))))
     
     (enqueue stream (list :type :data :flags flags :payload payload))))
 
 (defmethod pump-queue ((stream stream) n)
   (with-slots (queue state) stream
     (while-max queue n
-      (let ((item (shift queue)))
-	(if (functionp item)
-	    (when (null (funcall item))
-	      (unshift item queue))
-	    (progn
-	      (send stream item)
-	      ;; most implementations seem to nudge the other side after ending headers
-	      (if (and (endp queue)
-		       (member :end-stream (getf item :flags))
-		       (not (eq state :closed)))
-		  (send stream (list :type :window-update
-				     :flags nil
-				     :increment 1)))))))))
+      (let ((payload (shift queue)))
+	(when (functionp payload)
+	  (let* ((callback payload)
+		 (yielded (funcall callback)))
+	    (typecase yielded
+	      (buffer
+	       (unshift callback queue)  ; let buffer-yielding function go again later
+	       (setf payload yielded)
+	       (let ((chunks))
+		 (while (> (buffer-size payload) *max-frame-size*)
+		   (let ((chunk (buffer-slice! payload 0 *max-frame-size*)))
+		     (push chunk chunks)))
+		 (when chunks
+		   (setf payload (shift chunks))
+		   (when chunks
+		     (appendf queue chunks)))))
+	      (null
+	       (unshift payload queue)))))  ; let guarding function go again later
+	(when (bufferp payload)
+	  (send stream payload)
+	  ;; most implementations seem to nudge the other side after ending headers
+	  (if (and (endp queue)
+		   (member :end-stream (getf payload :flags))
+		   (not (eq state :closed)))
+	      (nudge stream)))))))
 
 (defmethod stream-close ((stream stream) &optional (error :stream-closed)) ; @ ***
   "Sends a RST_STREAM frame which closes current stream - this does not
@@ -213,6 +226,10 @@ to performing any application processing."
 (defmethod restrict ((stream stream))
   "Issue ENHANCE_YOUR_CALM to peer."
   (send stream (list :type :rst-stream :error :ehance-your-calm)))
+
+(defmethod nudge ((stream stream))
+  "Send a nominal WINDOW_UPDATE just to wake up the peer."
+  (send stream (list :type :window-update :flags nil :increment 1)))
 
 (defmethod connected ((stream stream))
   "Marks a stream as a successful CONNECT method stream where the 2xx
