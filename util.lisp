@@ -19,6 +19,12 @@
   "Like PUSH only at the end of the list designated by PLACE."
   `(setf ,place (nconc ,place (list ,item))))
 
+(defmacro unshift-all (items place)
+  "Unshifts each item in ITEMS to PLACE."
+  (let ((items* (gensym)))
+    `(let ((,items* ,items))
+       (when ,items* (appendf ,place ,items*)))))
+
 (defmacro while (test &body body)
   "Execute BODY while TEST is true."
   `(do () ((not ,test)) ,@body))

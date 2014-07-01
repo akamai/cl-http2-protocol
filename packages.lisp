@@ -8,7 +8,8 @@
   (:nicknames :http2-util)
   (:documentation "Basic utilities.")
   (:use :cl :alexandria :anaphora :babel)
-  (:export #:defalias #:shift #:unshift #:while #:while-max #:while-let
+  (:export #:defalias #:shift #:unshift #:unshift-all
+	   #:while #:while-max #:while-let
 	   #:ensuref #:deletef-if #:to-sym #:string-to-bytes
 	   #:flatten-n #:reverse-plist #:dohash
 	   #:+infinity #:-infinity
@@ -48,7 +49,8 @@
 	   #:stream-error-type #:stream<<
 	   #:ping #:goaway #:settings
 	   #:headers #:data #:promise #:reprioritize
-	   #:stream-close #:cancel #:refuse))
+	   #:stream-close #:cancel #:refuse #:restrict
+	   #:nudge #:extensible #:experimental))
 
 (defpackage :cl-http2-protocol-example
   (:nicknames :http2-example)

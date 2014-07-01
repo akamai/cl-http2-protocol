@@ -8,6 +8,14 @@
 ; vector primitives, and then define the BUFFER class, which will have
 ; a slot carrying the actual binary data.
 
+(defun vector-overwrite (src dest n)
+  "Modifies vector DEST by writing the elements of vector SRC to the beginning, and returns DEST."
+  (declare (type (vector (unsigned-byte 8)) src dest))
+  (loop
+     for i below n
+     do (setf (aref dest i) (aref src i)))
+  dest)
+
 (defun vector-concat (src dest)
   "Modifies vector DEST by concatenating the elements of vector SRC to the end, and returns DEST.
 If DEST is too small, it will be adjusted. If DEST has a fill pointer, it will be set to the new end."
@@ -199,6 +207,14 @@ is done ignoring errors, so it may bail and use the raw bytes."
   "Modifies BUFFER by concatenating the contents of BUFFER2 to BUFFER, and returns BUFFER."
   (buffer<< buffer (buffer-data buffer2)))
 
+(defmethod buffer-overwrite ((buffer buffer) (vector vector))
+  (vector-overwrite vector (buffer-data buffer) (length vector))
+  buffer)
+
+(defmethod buffer-overwrite ((buffer buffer) (buffer2 buffer))
+  (vector-overwrite (buffer-data buffer2) (buffer-data buffer) (buffer-size buffer2))
+  buffer)
+
 ; a BUFFER<< call that has (PACK ...) as its parameter will be written to a PACK call
 ; using the BUFFER-DATA array directly, instead of creating a temporary array which
 ; is then appended onto the BUFFER-DATA array
@@ -263,7 +279,7 @@ If N is greater than the size of BUFFER, only the remaining bytes in BUFFER are 
       (let ((spliced (make-instance 'buffer :data (make-data-vector n))))
 	(vector-splice (buffer-data buffer) (buffer-data spliced) n)
 	spliced)
-      ; most likely case for else branch is n = length
+      ;; most likely case for else branch is n = length
       (let ((spliced (make-instance 'buffer :data (make-data-vector 0))))
 	(rotatef (buffer-data buffer) (buffer-data spliced))  ; faster than copying bytes
 	spliced)))

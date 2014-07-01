@@ -4,7 +4,9 @@
 
 ; see also net.lisp which is part of the example and not strictly necessary
 
-(defun example-client (uri &key (net nil net-arg-p) (secure nil secure-arg-p))
+(defun example-client (uri &key (net nil net-arg-p) (secure nil secure-arg-p)
+			     (debug-mode *debug-mode*)
+			     (dump-bytes *dump-bytes*))
   (assert (or (not net-arg-p) (not secure-arg-p)) (net secure) "Provide either :NET or :SECURE")
   (when (not (uri-p uri))
     (setf uri (parse-uri uri)))
@@ -13,10 +15,12 @@
 				  #+sbcl 'net-plain-sb-bsd-sockets
 				  #-sbcl 'net-plain-usocket)))
   (assert (typep net 'net) (net) ":NET object must be of type NET")
-  (handler-case
-      (example-client-inner net uri)
-    (connection-refused-error ()
-      (format t "Connection refused: ~A~%" uri))))
+  (let ((*debug-mode* debug-mode)
+	(*dump-bytes* dump-bytes))
+    (handler-case
+	(example-client-inner net uri)
+      (connection-refused-error ()
+	(format t "Connection refused: ~A~%" uri)))))
 
 (defun example-client-inner (net uri)
   (format t "About to connect socket to ~A port ~A...~%"
@@ -50,8 +54,10 @@
       
       (on stream :close
 	  (lambda (e)
-	    (format t "stream closed (error, if any: ~A)~%" e)
-	    (error 'end-of-file :stream (net-socket net))))
+	    (if e
+		(format t "stream closed, error: ~A~%" e)
+		(format t "stream closed~%"))
+	    (error 'end-of-file :stream (net-socket net))))  ; normal behavior to throw EOF
 
       (on stream :half-close
 	  (lambda ()
@@ -165,7 +171,7 @@
 		    (lambda ()
 		      (macrolet ((req-header (name) `(cdr (assoc ,name req :test #'string=))))
 			(format t "client closed its end of the stream~%")
-		    
+
 			(let (response)
 			  (if (string= (req-header ":method") "post")
 			      (let ((post-str (buffer-string buffer)))
