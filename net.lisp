@@ -28,7 +28,7 @@
 (defparameter *server-cert-file* (merge-pathnames "mycert.pem" *key-pathname*))
 (defparameter *dhparams-file* (merge-pathnames "dhparams.2048.pem" *key-pathname*))
 
-(defparameter *next-protos-spec* '("h2-12"))
+(defparameter *next-protos-spec* '("h2-13"))
 
 (defparameter *dump-bytes* t)         ; t or nil
 (defparameter *dump-bytes-stream* t)  ; t for stdout, or a stream
