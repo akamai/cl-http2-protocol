@@ -11,6 +11,8 @@
 (defparameter *max-windowinc* #x7FFFFFFF
   "Maximum window increment value (2^31)")
 
+(defparameter *common-header-length* 8)
+
 (defparameter *frame-types* '(:data          #x0
 			      :headers       #x1
 			      :priority      #x2
@@ -80,8 +82,7 @@
   (:documentation "Performs encoding, decoding, and validation of binary HTTP 2.0 frames."))
 
 (defmethod common-header ((framer framer) frame)
-  "Generates common 8-byte frame header.
-- http://tools.ietf.org/html/draft-ietf-httpbis-http2-04#section-4.1"
+  "Generates common 8-byte frame header."
 
   (when (not (getf *frame-types* (getf frame :type)))
     (raise :http2-compression-error "Invalid frame type (~A)" (getf frame :type)))
@@ -129,7 +130,7 @@
   "Decodes common 8-byte header."
   (let (frame)
     (destructuring-bind (flength type flags stream)
-	(unpack *headerpack* (buffer-data (buffer-slice buf 0 8)))
+	(unpack *headerpack* (buffer-data (buffer-slice buf 0 *common-header-length*)))
       (setf (getf frame :length) (logand flength *uint32-2msb-reserved*))
 
       (setf (getf frame :type)
@@ -150,9 +151,8 @@
     frame))
 
 (defmethod generate ((framer framer) frame)
-  "Generates encoded HTTP 2.0 frame.
-- http://tools.ietf.org/html/draft-ietf-httpbis-http2"
-  (let ((bytes (make-instance 'buffer :data (make-data-vector 8)))  ; first 8 will be filled at end
+  "Generates encoded HTTP 2.0 frame."
+  (let ((bytes (make-instance 'buffer :data (make-data-vector *common-header-length*)))
 	(length 0))
 
     (ensuref (getf frame :flags) nil)
@@ -202,10 +202,15 @@
 	   
 	   (when (null k)
 	     (raise :http2-compression-error "Unknown settings ID for ~A" k)))
-	 
-	 (buffer<< bytes (pack *uint8* k))
-	 (buffer<< bytes (pack *uint32* v))
-	 (incf length 5)))
+
+	 (if (not (eq k :extensible))
+	     (progn
+	       (buffer<< bytes (pack "nN" (list k v)))
+	       (incf length 6))
+	     (progn
+	       (dolist (e v)
+		 (buffer<< bytes (pack "nN" (list (car e) (cdr e))))
+		 (incf length 6))))))
 
       (:push-promise
        (buffer<< bytes (pack *uint32* (logand (getf frame :promise-stream) *uint32-msb-reserved*)))
@@ -300,16 +305,15 @@ does not contain enough data, no further work is performed."
 	 (getf frame :error (unpack-error (buffer-read-uint32 payload))))
 
 	(:settings
-	 (setf (getf frame :payload) nil)
 	 (loop
-	    repeat (/ (getf frame :length) 5)
-	    for id = (buffer-readbyte payload)
+	    with settings = '()
+	    repeat (/ (getf frame :length) 6)
+	    for id  = (buffer-read-uint16 payload)
 	    for val = (buffer-read-uint32 payload)
-	    ; Unsupported or unrecognized settings MUST be ignored.
-	    do (when-let (name (loop
-				  for (name v) on *defined-settings* by #'cddr
-				  if (= v id) return name))
-		 (setf (getf (getf frame :payload) name) val))))
+	    do (aif (doplist (k v *defined-settings*) (if (= id v) (return k)))
+		    (setf (getf settings it) val)
+		    (push (cons id val) (getf settings :extensible)))
+	    finally (setf (getf frame :payload) settings)))
 
 	(:push-promise
 	 (let ((flags (getf frame :flags))

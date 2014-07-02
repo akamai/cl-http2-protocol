@@ -134,6 +134,11 @@
 	  ; (format t "transmitting frame now~%")
 	  (send-bytes net (buffer-data bytes))))
       
+    (on conn :goaway
+	(lambda (s e m)
+	  (declare (ignore s))
+	  (format t "goaway error message, code: ~D, message: ~S~%" e (buffer-string m))))
+
     (on conn :stream
 	(lambda (stream)
 	  (let (req

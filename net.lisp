@@ -302,7 +302,7 @@
 (defun receive-loop (net conn)
   (handler-case
       (loop
-	 (while (and (http2::pump-stream-queues conn 2)
+	 (while (and (pump-stream-queues conn 2)
 		     (not (net-input-ready net))))
 	 (when-let (bytes (receive-bytes net))
 	   (handler-case-unless *debug-mode*

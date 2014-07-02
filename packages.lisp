@@ -50,7 +50,8 @@
 	   #:ping #:goaway #:settings
 	   #:headers #:data #:promise #:reprioritize
 	   #:stream-close #:cancel #:refuse #:restrict
-	   #:nudge #:extensible #:experimental))
+	   #:nudge #:extensible #:experimental
+	   #:pump-stream-queues #:pump-queue))
 
 (defpackage :cl-http2-protocol-example
   (:nicknames :http2-example)

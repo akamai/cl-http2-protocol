@@ -46,13 +46,13 @@
       ( 39 #*11111111010 11 #x7fa #\')
       ( 40 #*1111111010 10 #x3fa #\()
       ( 41 #*1111111011 10 #x3fb #\))
-      ( 42 #*11111001 #xf9 8 #\*)
+      ( 42 #*11111001 8 #xf9 #\*)
       ( 43 #*11111111011 11 #x7fb #\+)
-      ( 44 #*11111010 #xfa 8 #\,)
-      ( 45 #*010110 #x16 6 #\-)
-      ( 46 #*010111 #x17 6 #\.)
-      ( 47 #*011000 #x18 6 #\/)
-      ( 48 #*00000 #x0 5 #\0)
+      ( 44 #*11111010 8 #xfa #\,)
+      ( 45 #*010110 6 #x16 #\-)
+      ( 46 #*010111 6 #x17 #\.)
+      ( 47 #*011000 6 #x18 #\/)
+      ( 48 #*00000 5 #x0 #\0)
       ( 49 #*00001 5 #x1 #\1)
       ( 50 #*00010 5 #x2 #\2)
       ( 51 #*011001 6 #x19 #\3)
@@ -308,7 +308,7 @@
      else
      do (loop-finish)
      finally (progn
-	       ; (format t "(huffman-decode): returning ~S~%" (map 'string #'code-char data))
+					; (format t "(huffman-decode): returning ~S~%" (map 'string #'code-char data))
 	       (return (values data (- bit-input-length bp))))))
 
 (defun huffman-decode-buffer-to-string (buffer input-length)
