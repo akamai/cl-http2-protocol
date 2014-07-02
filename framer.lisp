@@ -11,6 +11,8 @@
 (defparameter *max-windowinc* #x7FFFFFFF
   "Maximum window increment value (2^31)")
 
+(defparameter *common-header-length* 8)
+
 (defparameter *frame-types* '(:data          #x0
 			      :headers       #x1
 			      :priority      #x2
@@ -21,33 +23,28 @@
 			      :goaway        #x7
 			      :window-update #x8
 			      :continuation  #x9
-			      :altsvc        #xa)
+			      :extensible    (#x10 . #xef)
+			      :experimental  (#xf0 . #xff))
   "HTTP 2.0 frame type mapping as defined by the spec")
 
 (defparameter *frame-flags* '(:data          (:end-stream          0
 					      :end-segment         1
-					      :pad-low             3
-					      :pad-high            4)
+					      :padded              4)
 			      :headers       (:end-stream          0
 					      :end-segment         1
 					      :end-headers         2
-					      :pad-low             3
-					      :pad-high            4
+					      :padded              4
 					      :priority            5)
 			      :priority      (:priority-group      5
 					      :priority-dependency 6)
 			      :rst-stream    ()
 			      :settings      (:ack                 0)
 			      :push-promise  (:end-headers         2
-					      :pad-low             3
-					      :pad-high            4)
+					      :padded              4)
 			      :ping          (:ack                 0)
 			      :goaway        ()
 			      :window-update ()
-			      :continuation  (:end-headers         2
-					      :pad-low             3
-					      :pad-high            4)
-			      :altsvc        ())
+			      :continuation  (:end-headers         2))
   "Per frame flags as defined by the spec. (Integers are bit positions from 0, not values.)")
 
 (defparameter *defined-settings* '(:settings-header-table-size      1
@@ -85,47 +82,66 @@
   (:documentation "Performs encoding, decoding, and validation of binary HTTP 2.0 frames."))
 
 (defmethod common-header ((framer framer) frame)
-  "Generates common 8-byte frame header.
-- http://tools.ietf.org/html/draft-ietf-httpbis-http2-04#section-4.1"
-  (let (header)
+  "Generates common 8-byte frame header."
 
-    (when (not (getf *frame-types* (getf frame :type)))
-      (raise :http2-compression-error "Invalid frame type (~A)" (getf frame :type)))
+  (when (not (getf *frame-types* (getf frame :type)))
+    (raise :http2-compression-error "Invalid frame type (~A)" (getf frame :type)))
 
-    (when (> (getf frame :length) *max-payload-size*)
-      (raise :http2-compression-error "Frame size is too large: ~D" (getf frame :length)))
+  (when (> (getf frame :length) *max-payload-size*)
+    (raise :http2-compression-error "Frame size is too large: ~D" (getf frame :length)))
 
-    (when (> (getf frame :stream) *max-stream-id*)
-      (raise :http2-compression-error "Stream ID (~A) is too large" (getf frame :stream)))
+  (when (> (getf frame :stream) *max-stream-id*)
+    (raise :http2-compression-error "Stream ID (~A) is too large" (getf frame :stream)))
 
-    (when (and (eq (getf frame :type) :window-update)
-	       (> (getf frame :increment) *max-windowinc*))
-      (raise :http2-compression-error "Window increment (~D) is too large" (getf frame :increment)))
+  (when (and (eq (getf frame :type) :window-update)
+	     (> (getf frame :increment) *max-windowinc*))
+    (raise :http2-compression-error "Window increment (~D) is too large" (getf frame :increment)))
 
-    (push (getf frame :length) header)
-    (push (getf *frame-types* (getf frame :type)) header)
-    (push (reduce (lambda (acc f)
-		    (let ((position (getf (getf *frame-flags* (getf frame :type)) f)))
-		      (when (null position)
-			(raise :http2-compression-error "Invalid frame flag (~A) for ~A" f (getf frame :type)))
-		      (setf (logbitp position acc) 1)
-		      acc))
-		  (getf frame :flags) :initial-value 0) header)
+  (let ((frame-type (getf frame :type)))
+    (let ((frame-length
+	   (getf frame :length))
+	  (frame-type-code
+	   (let ((type-code (getf *frame-types* frame-type)))
+	     (if (numberp type-code)
+		 type-code
+		 (let ((stated (getf frame :type-code)))
+		   (if stated
+		       (if (<= (car type-code) stated (cdr type-code))
+			   stated
+			   (raise :http2-compression-error "Invalid type code (~A) for frame type (~A)"
+				  (getf frame :type-code) (getf frame :type)))
+		       (car type-code))))))
+	  (frame-flags-combined
+	   (let ((flags (getf *frame-flags* frame-type)))
+	     (reduce (lambda (acc f)
+		       (let ((position (getf flags f)))
+			 (when (null position)
+			   (raise :http2-compression-error "Invalid frame flag (~A) for ~A" f (getf frame :type)))
+			 (setf (logbitp position acc) 1)
+			 acc))
+		     (getf frame :flags)
+		     :initial-value 0)))
+	  (frame-stream-id
+	   (getf frame :stream)))
 
-    (push (getf frame :stream) header)
-    (pack *headerpack* (nreverse header))))
+      (pack *headerpack* (list frame-length frame-type-code frame-flags-combined frame-stream-id)))))
 
 (defmethod read-common-header ((framer framer) (buf buffer))
   "Decodes common 8-byte header."
   (let (frame)
     (destructuring-bind (flength type flags stream)
-	(unpack *headerpack* (buffer-data (buffer-slice buf 0 8)))
+	(unpack *headerpack* (buffer-data (buffer-slice buf 0 *common-header-length*)))
       (setf (getf frame :length) (logand flength *uint32-2msb-reserved*))
 
       (setf (getf frame :type)
 	    (loop
 	       for (ft pos) on *frame-types* by #'cddr
-	       if (= type pos) return ft))
+	       do (etypecase pos
+		    (number (when (= type pos)
+			      (return ft)))
+		    (cons   (when (<= (car pos) type (cdr pos))
+			      (setf (getf frame :type-code) type)
+			      (return ft))))))
       (setf (getf frame :flags)
 	    (loop
 	       for (name pos) on (getf *frame-flags* (getf frame :type)) by #'cddr
@@ -135,9 +151,8 @@
     frame))
 
 (defmethod generate ((framer framer) frame)
-  "Generates encoded HTTP 2.0 frame.
-- http://tools.ietf.org/html/draft-ietf-httpbis-http2"
-  (let ((bytes (make-instance 'buffer))
+  "Generates encoded HTTP 2.0 frame."
+  (let ((bytes (make-instance 'buffer :data (make-data-vector *common-header-length*)))
 	(length 0))
 
     (ensuref (getf frame :flags) nil)
@@ -187,10 +202,15 @@
 	   
 	   (when (null k)
 	     (raise :http2-compression-error "Unknown settings ID for ~A" k)))
-	 
-	 (buffer<< bytes (pack *uint8* k))
-	 (buffer<< bytes (pack *uint32* v))
-	 (incf length 5)))
+
+	 (if (not (eq k :extensible))
+	     (progn
+	       (buffer<< bytes (pack "nN" (list k v)))
+	       (incf length 6))
+	     (progn
+	       (dolist (e v)
+		 (buffer<< bytes (pack "nN" (list (car e) (cdr e))))
+		 (incf length 6))))))
 
       (:push-promise
        (buffer<< bytes (pack *uint32* (logand (getf frame :promise-stream) *uint32-msb-reserved*)))
@@ -214,32 +234,12 @@
        (buffer<< bytes (pack *uint32* (getf frame :increment)))
        (incf length 4))
 
-      (:continuation
+      ((:continuation :extensible :experimental)
        (buffer<< bytes (getf frame :payload))
-       (incf length (buffer-size (getf frame :payload))))
-
-      (:altsvc
-       (buffer<< bytes (pack "NnB"
-			     (list (or (getf frame :max-age) 0)
-				   (or (getf frame :port) 0)
-				   0)))
-       (incf length 7)
-       (let* ((pid (or (getf frame :protocol-identifier) ""))
-	      (length-pid (length pid)))
-	 (buffer<< bytes (pack *uint8* length-pid))
-	 (buffer<< bytes pid)
-	 (incf length (1+ length-pid)))
-       (let* ((host (or (getf frame :host) ""))
-	      (length-host (length host)))
-	 (buffer<< bytes (pack *uint8* length-host))
-	 (buffer<< bytes host)
-	 (incf length (1+ length-host)))
-       (let ((origin (or (getf frame :origin) "")))
-	 (buffer<< bytes origin)
-	 (incf length (length origin)))))
+       (incf length (buffer-size (getf frame :payload)))))
 
     (setf (getf frame :length) length)
-    (buffer-prepend bytes (common-header framer frame))))
+    (buffer-overwrite bytes (common-header framer frame))))
 
 (defmethod parse ((framer framer) (buf buffer))
   "Decodes complete HTTP 2.0 frame from provided buffer. If the buffer
@@ -258,13 +258,10 @@ does not contain enough data, no further work is performed."
 
       (case (getf frame :type)
 	(:data
-	 (let* ((flags (getf frame :flags))
-		(size (getf frame :length))
-		(pad 0))
-	   (when (member :pad-high flags)
-	     (incf pad (ash (buffer-readbyte payload) 8))
-	     (decf size))
-	   (when (member :pad-low flags)
+	 (let ((flags (getf frame :flags))
+	       (size (getf frame :length))
+	       (pad 0))
+	   (when (member :padded flags)
 	     (incf pad (buffer-readbyte payload))
 	     (decf size))
 	   (when (> pad size)
@@ -276,10 +273,7 @@ does not contain enough data, no further work is performed."
 	 (let ((flags (getf frame :flags))
 	       (size (getf frame :length))
 	       (pad 0))
-	   (when (member :pad-high flags)
-	     (incf pad (ash (buffer-readbyte payload) 8))
-	     (decf size))
-	   (when (member :pad-low flags)
+	   (when (member :padded flags)
 	     (incf pad (buffer-readbyte payload))
 	     (decf size))
 	   (if (member :priority flags)
@@ -311,25 +305,21 @@ does not contain enough data, no further work is performed."
 	 (getf frame :error (unpack-error (buffer-read-uint32 payload))))
 
 	(:settings
-	 (setf (getf frame :payload) nil)
 	 (loop
-	    repeat (/ (getf frame :length) 5)
-	    for id = (buffer-readbyte payload)
+	    with settings = '()
+	    repeat (/ (getf frame :length) 6)
+	    for id  = (buffer-read-uint16 payload)
 	    for val = (buffer-read-uint32 payload)
-	    ; Unsupported or unrecognized settings MUST be ignored.
-	    do (when-let (name (loop
-				  for (name v) on *defined-settings* by #'cddr
-				  if (= v id) return name))
-		 (setf (getf (getf frame :payload) name) val))))
+	    do (aif (doplist (k v *defined-settings*) (if (= id v) (return k)))
+		    (setf (getf settings it) val)
+		    (push (cons id val) (getf settings :extensible)))
+	    finally (setf (getf frame :payload) settings)))
 
 	(:push-promise
-	 (let* ((flags (getf frame :flags))
-		(size (getf frame :length))
-		(pad 0))
-	   (when (member :pad-high flags)
-	     (incf pad (ash (buffer-readbyte payload) 8))
-	     (decf size))
-	   (when (member :pad-low flags)
+	 (let ((flags (getf frame :flags))
+	       (size (getf frame :length))
+	       (pad 0))
+	   (when (member :padded flags)
 	     (incf pad (buffer-readbyte payload))
 	     (decf size))
 	   (when (> pad size)
@@ -353,21 +343,8 @@ does not contain enough data, no further work is performed."
 	(:window-update
 	 (setf (getf frame :increment) (logand (buffer-read-uint32 payload) *uint32-msb-reserved*)))
 
-	(:continuation
-	 (setf (getf frame :payload) (buffer-read payload (getf frame :length))))
-
-	(:altsvc
-	 (setf (getf frame :max-age) (buffer-read-uint32 payload))
-	 (setf (getf frame :port) (buffer-read-uint16 payload))
-	 (buffer-readbyte payload)
-	 (let ((size (- (getf frame :length) 7)))
-	   (let ((pid-length (buffer-readbyte payload)))
-	     (setf (getf frame :protocol-identifier) (buffer-string (buffer-read payload pid-length)))
-	     (decf size (1+ pid-length)))
-	   (let ((host-length (buffer-readbyte payload)))
-	     (setf (getf frame :host) (buffer-string (buffer-read payload host-length)))
-	     (decf size (1+ host-length)))
-	   (setf (getf frame :origin) (buffer-string (buffer-read payload size)))))))
+	((:continuation :extensible :experimental)
+	 (setf (getf frame :payload) (buffer-read payload (getf frame :length))))))
 
     frame))
 

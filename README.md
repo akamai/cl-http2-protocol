@@ -5,8 +5,8 @@ What This Is
 ------------
 
 This is [HTTP/2
-draft-12](http://tools.ietf.org/html/draft-ietf-httpbis-http2-12)
-(a.k.a. "h2-12")
+draft-13](http://tools.ietf.org/html/draft-ietf-httpbis-http2-13)
+(a.k.a. "h2-13")
 [interopability test
 code](https://github.com/http2/http2-spec/wiki/Implementations)
 written in Common Lisp. It has only been tested against SBCL 1.1.8.0
@@ -14,7 +14,7 @@ on x86, but it should be possible to make it work on other Common Lisp
 implementations, subject to some editing in util.lisp.
 
 The code offers a pure Common Lisp transport agnostic implementation
-of the HTTP/2 protocol at draft-12. An example client and server are
+of the HTTP/2 protocol at draft-13. An example client and server are
 included for a "Hello, World" style test, which employ TLS using
 `CL+SSL` and OpenSSL. For unencrypted communication (a.k.a. plain or
 direct), code using `USOCKET` is included (on SBCL, another option is
@@ -39,8 +39,8 @@ Support for:
 
 Current implementation (see [HPBN chapter for HTTP/2 overview](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html)), is based on:
 
-* [draft-ietf-httpbis-http2-12](http://tools.ietf.org/html/draft-ietf-httpbis-http2-12)
-* [draft-ietf-httpbis-header-compression-07](http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-07)
+* [draft-ietf-httpbis-http2-13](http://tools.ietf.org/html/draft-ietf-httpbis-http2-13)
+* [draft-ietf-httpbis-header-compression-08](http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-08)
 
 Copyright
 ---------
@@ -65,7 +65,7 @@ Notes on Port
 This code began life as a port from the
 [Ruby interopability code](https://github.com/igrigorik/http-2)
 written by Ilya Grigorik released under MIT license. This code has
-since diverged to support newer drafts (up to draft-12 currently) and
+since diverged to support newer drafts (up to draft-13 currently) and
 also to allow queueing and multiplexing support with a prioritization
 algorithm.
 
@@ -159,6 +159,7 @@ sbcl --script <<EOF
 EOF
 #
 # ...now you have an HTTP/2 server on port 8080
+# (note the server is ONLY HTTP/2; there is no HTTP/1.1 fallback)
 #
 # ...to stop the server, ctrl+c followed by ABORT at the handler
 #

@@ -111,7 +111,11 @@
 	 (emit stream :priority p d e)))
       (:window-update
        (incf window (getf frame :increment))
-       (drain-send-buffer stream)))
+       (drain-send-buffer stream))
+      (:extensible
+       (emit stream :extensible frame))
+      (:experimental
+       (emit stream :experimental frame)))
 
     (complete-transition stream frame)))
 
@@ -172,29 +176,41 @@ performed by the client)."
   (let (flags)
     (when end-stream
       (push :end-stream flags))
-    
-    (while (> (buffer-size payload) *max-frame-size*)
-      (let ((chunk (buffer-slice! payload 0 *max-frame-size*)))
-	(enqueue stream (list :type :data :payload chunk))))
+
+    (when (bufferp payload)
+      (while (> (buffer-size payload) *max-frame-size*)
+	(let ((chunk (buffer-slice! payload 0 *max-frame-size*)))
+	  (enqueue stream (list :type :data :payload chunk)))))
     
     (enqueue stream (list :type :data :flags flags :payload payload))))
 
 (defmethod pump-queue ((stream stream) n)
   (with-slots (queue state) stream
     (while-max queue n
-      (let ((item (shift queue)))
-	(if (functionp item)
-	    (when (null (funcall item))
-	      (unshift item queue))
-	    (progn
-	      (send stream item)
-	      ;; most implementations seem to nudge the other side after ending headers
-	      (if (and (endp queue)
-		       (member :end-stream (getf item :flags))
-		       (not (eq state :closed)))
-		  (send stream (list :type :window-update
-				     :flags nil
-				     :increment 1)))))))))
+      (let ((payload (shift queue)))
+	(when (functionp payload)
+	  (let* ((callback payload)
+		 (yielded (funcall callback)))
+	    (typecase yielded
+	      (buffer
+	       (unshift callback queue)  ; let buffer-yielding function go again later
+	       (setf payload yielded)
+	       (let ((chunks))
+		 (while (> (buffer-size payload) *max-frame-size*)
+		   (let ((chunk (buffer-slice! payload 0 *max-frame-size*)))
+		     (push chunk chunks)))
+		 (when chunks
+		   (setf payload (shift chunks))
+		   (unshift-all chunks queue))))
+	      (null
+	       (unshift payload queue)))))  ; let guarding function go again later
+	(unless (functionp payload)
+	  (send stream payload)
+	  ;; most implementations seem to nudge the other side after ending headers
+	  (when (and (endp queue)
+		     (member :end-stream (getf payload :flags))
+		     (not (eq state :closed)))
+	    (nudge stream)))))))
 
 (defmethod stream-close ((stream stream) &optional (error :stream-closed)) ; @ ***
   "Sends a RST_STREAM frame which closes current stream - this does not
@@ -213,6 +229,25 @@ to performing any application processing."
 (defmethod restrict ((stream stream))
   "Issue ENHANCE_YOUR_CALM to peer."
   (send stream (list :type :rst-stream :error :ehance-your-calm)))
+
+(defmethod nudge ((stream stream))
+  "Send a nominal WINDOW_UPDATE just to wake up the peer."
+  (send stream (list :type :window-update :flags nil :increment 1)))
+
+(defmethod ranged-frame ((stream stream) type (type-code number) flags payload)
+  "Send a frame that uses one of the extensible range type codes."
+  (destructuring-bind (min . max) (getf *frame-types* type)
+    (if (<= min type-code max)
+	(send stream (list :type type :type-code type-code :flags flags :payload payload))
+	(error "Type code (~A) is out of range (~D-~D) for type ~A." type-code min max type))))
+
+(defmethod extensible ((stream stream) (type-code number) flags payload)
+  "Send a frame that uses one of the extensible range type codes."
+  (ranged-frame stream :extensible type-code flags payload))
+
+(defmethod experimental ((stream stream) (type-code number) flags payload)
+  "Send a frame that uses one of the extensible range type codes."
+  (ranged-frame stream :experimental type-code flags payload))
 
 (defmethod connected ((stream stream))
   "Marks a stream as a successful CONNECT method stream where the 2xx
@@ -404,6 +439,7 @@ success headers have been sent and the stream is ready for DATA frames."
 	      (event stream :remote-rst))
 	     (:window-update
 	      (setf (getf frame :ignore) t))
+	     (:priority nil)
 	     (otherwise
 	      (stream-error stream :type :stream-closed)))))
 
@@ -430,14 +466,15 @@ success headers have been sent and the stream is ready for DATA frames."
       (:closed
        (if sending
 	   (case (getf frame :type)
-	     (:rst-stream nil)
+	     ((:rst-stream :priority) nil)
 	     (otherwise
-	      (when (not (eq (getf frame :type) :rst-stream))
-		(stream-error stream :type :stream-closed))))
+	      (stream-error stream :type :stream-closed)))
 	   (case closed
 	     ((:remote-rst :remote-closed)
-	      (when (not (eq (getf frame :type) :rst-stream))
-		(stream-error stream :type :stream-closed)))
+	      (case (getf frame :type)
+		((:rst-stream :priority) nil)
+		(otherwise
+		 (stream-error stream :type :stream-closed))))
 	     ((:local-rst :local-closed)
 	      (setf (getf frame :ignore) t))))))))
 

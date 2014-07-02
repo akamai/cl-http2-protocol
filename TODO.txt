@@ -1,5 +1,0 @@
-TODO:
--- update to draft-10/hpack-06
--- issue INADEQUATE_SECURITY correctly
--- receive changes to header table correctly
--- 
