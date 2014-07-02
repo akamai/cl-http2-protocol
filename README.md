@@ -39,8 +39,8 @@ Support for:
 
 Current implementation (see [HPBN chapter for HTTP/2 overview](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html)), is based on:
 
-* [draft-ietf-httpbis-http2-12](http://tools.ietf.org/html/draft-ietf-httpbis-http2-12)
-* [draft-ietf-httpbis-header-compression-07](http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-07)
+* [draft-ietf-httpbis-http2-13](http://tools.ietf.org/html/draft-ietf-httpbis-http2-13)
+* [draft-ietf-httpbis-header-compression-08](http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-08)
 
 Copyright
 ---------

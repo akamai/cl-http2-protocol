@@ -8,7 +8,7 @@
 (in-package :cl-http2-protocol-asd)
 
 (defsystem :cl-http2-protocol
-  :description "HTTP/2 draft-13/hpack-07 (h2-13) implementation with client/server examples.
+  :description "HTTP/2 draft-13/hpack-08 (h2-13) implementation with client/server examples.
 Originally a port of Ruby code by Ilya Grigorik, see: https://github.com/igrigorik/http-2
 For HTTP/2 draft-13, see: http://tools.ietf.org/html/draft-ietf-httpbis-http2-13
 For other implementations, see: https://github.com/http2/http2-spec/wiki/Implementations"
