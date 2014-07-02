@@ -28,7 +28,7 @@
 (defparameter *server-cert-file* (merge-pathnames "mycert.pem" *key-pathname*))
 (defparameter *dhparams-file* (merge-pathnames "dhparams.2048.pem" *key-pathname*))
 
-(defparameter *next-protos-spec* '("h2-12"))
+(defparameter *next-protos-spec* '("h2-13"))
 
 (defparameter *dump-bytes* t)         ; t or nil
 (defparameter *dump-bytes-stream* t)  ; t for stdout, or a stream
@@ -278,10 +278,11 @@
 ; general functions
 
 (defmacro maybe-dump-bytes (type bytes)
-  `(when *dump-bytes*
-     (let ((*print-base* *dump-bytes-base*))
-       (format *dump-bytes-stream* ,(concatenate 'string "http2 " (string-downcase type) ": ~A~%")
-	       (if *dump-bytes-hook* (funcall *dump-bytes-hook* ,bytes) ,bytes)))))
+  `(if *dump-bytes*
+       (let ((*print-base* *dump-bytes-base*))
+	 (format *dump-bytes-stream* ,(concatenate 'string "http2 " (string-downcase type) ": ~A~%")
+		 (if *dump-bytes-hook* (funcall *dump-bytes-hook* ,bytes) ,bytes)))
+       (format t "not dumping bytes~%")))
 
 (defun send-bytes (net bytes)
   (maybe-dump-bytes :send bytes)
@@ -301,7 +302,7 @@
 (defun receive-loop (net conn)
   (handler-case
       (loop
-	 (while (and (http2::pump-stream-queues conn 2)
+	 (while (and (pump-stream-queues conn 2)
 		     (not (net-input-ready net))))
 	 (when-let (bytes (receive-bytes net))
 	   (handler-case-unless *debug-mode*

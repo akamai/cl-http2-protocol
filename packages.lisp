@@ -8,7 +8,8 @@
   (:nicknames :http2-util)
   (:documentation "Basic utilities.")
   (:use :cl :alexandria :anaphora :babel)
-  (:export #:defalias #:shift #:unshift #:while #:while-max #:while-let
+  (:export #:defalias #:shift #:unshift #:unshift-all
+	   #:while #:while-max #:while-let
 	   #:ensuref #:deletef-if #:to-sym #:string-to-bytes
 	   #:flatten-n #:reverse-plist #:dohash
 	   #:+infinity #:-infinity
@@ -20,7 +21,7 @@
 
 (defpackage :cl-http2-protocol
   (:nicknames :http2)
-  (:documentation "HTTP/2 draft-12/hpack-07 implementation.")
+  (:documentation "HTTP/2 draft-13/hpack-08 (h2-13) implementation.")
   (:use :cl :alexandria :anaphora :babel :http2-util)
   (:shadow #:stream #:stream-error)
   (:export #:http2-error #:http2-not-started #:http2-handshake-error
@@ -48,11 +49,13 @@
 	   #:stream-error-type #:stream<<
 	   #:ping #:goaway #:settings
 	   #:headers #:data #:promise #:reprioritize
-	   #:stream-close #:cancel #:refuse))
+	   #:stream-close #:cancel #:refuse #:restrict
+	   #:nudge #:extensible #:experimental
+	   #:pump-stream-queues #:pump-queue))
 
 (defpackage :cl-http2-protocol-example
   (:nicknames :http2-example)
-  (:documentation "HTTP/2 draft-12/hpack-07 simple example client/server.")
+  (:documentation "HTTP/2 draft-13/hpack-08 (h2-13) simple example client/server.")
   (:use :cl :alexandria :anaphora :babel :puri :usocket :cl+ssl :http2-util :http2)
   (:export #:example-client #:example-server
 	   #:*dump-bytes* #:*dump-bytes-stream* #:*dump-bytes-hook*))

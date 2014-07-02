@@ -19,6 +19,12 @@
   "Like PUSH only at the end of the list designated by PLACE."
   `(setf ,place (nconc ,place (list ,item))))
 
+(defmacro unshift-all (items place)
+  "Unshifts each item in ITEMS to PLACE."
+  (let ((items* (gensym)))
+    `(let ((,items* ,items))
+       (when ,items* (appendf ,place ,items*)))))
+
 (defmacro while (test &body body)
   "Execute BODY while TEST is true."
   `(do () ((not ,test)) ,@body))
@@ -98,68 +104,6 @@ Set KEY-NAME and VALUE-NAME appropriately for each iteration."
 CONTROL is a string of characters which can be of these:
 n - 16-bit integer
 N - 32-bit integer
-C - character"
-  (when (symbolp control)
-    (setf control (eval control)))
-  (with-gensyms (values-ptr value bytes position)
-    (let* ((bits-and-sets
-	    (loop
-	       for code across control
-	       for size-set =
-	       (ecase code
-		 (#\n
-		  `(16
-		    (setf ,value (coerce ,value '(unsigned-byte 16)))
-		    (setf (aref ,bytes ,position) (ldb (byte 8 #+big-endian 0 #+little-endian 8) ,value))
-		    (incf ,position)
-		    (setf (aref ,bytes ,position) (ldb (byte 8 #+big-endian 8 #+little-endian 0) ,value))
-		    (incf ,position)))
-		 (#\N
-		  `(32
-		    (setf ,value (coerce ,value '(unsigned-byte 32)))
-		    (setf (aref ,bytes ,position) (ldb (byte 8 #+big-endian  0 #+little-endian 24) ,value))
-		    (incf ,position)
-		    (setf (aref ,bytes ,position) (ldb (byte 8 #+big-endian  8 #+little-endian 16) ,value))
-		    (incf ,position)
-		    (setf (aref ,bytes ,position) (ldb (byte 8 #+big-endian 16 #+little-endian  8) ,value))
-		    (incf ,position)
-		    (setf (aref ,bytes ,position) (ldb (byte 8 #+big-endian 24 #+little-endian  0) ,value))
-		    (incf ,position)))
-		 (#\C
-		  `(8
-		    (setf ,value (coerce (if (characterp ,value) (char-code ,value) ,value) '(unsigned-byte 8)))
-		    (setf (aref ,bytes ,position) (ldb (byte 8 0) ,value))
-		    (incf ,position))))
-	       sum (car size-set) into bits
-	       collect (cdr size-set) into sets
-	       finally (return (list bits sets))))
-	   (bit-size (first bits-and-sets))
-	   (sets (second bits-and-sets)))
-      (if (> (length control) 1)
-	  `(let* ((,values-ptr ,values)
-		  (,value (car ,values-ptr))
-		  (,bytes ,(or array `(make-array ,(/ bit-size 8) :element-type '(unsigned-byte 8))))
-		  (,position (the fixnum ,(or start 0))))
-	     ,@(butlast (cdr (mappend (lambda (set)
-					`((setf ,values-ptr (cdr ,values-ptr)
-						,value (car ,values-ptr))
-					  ,@set)) sets)))
-	     ,bytes)
-	  (progn
-	    (when (and (listp values) (eq (first values) 'list) (= (length values) 2))
-	      (setf values (second values)))
-	    `(let* ((,value ,values)
-		    (,bytes ,(or array `(make-array ,(/ bit-size 8) :element-type '(unsigned-byte 8))))
-		    (,position (the fixnum ,(or start 0))))
-	       ,@(first sets)
-	       ,@(when array `((setf (fill-pointer ,array) ,position)))
-	       ,bytes))))))
-
-(defmacro pack (control values &key array start)
-  "A macro that expands into code to pack VALUES into bytes per the template in CONTROL.
-CONTROL is a string of characters which can be of these:
-n - 16-bit integer
-N - 32-bit integer
 C - character or byte
 B - 8-bit integer"
   (when (symbolp control)
@@ -196,22 +140,40 @@ B - 8-bit integer"
 	   (bit-size (first bits-and-sets))
 	   (sets (second bits-and-sets)))
       (if (> (length control) 1)
-	  `(let* ((,values-ptr ,values)
-		  (,value (car ,values-ptr))
-		  (,bytes ,(or array `(make-array ,(/ bit-size 8) :element-type '(unsigned-byte 8))))
-		  (,position (the fixnum ,(or start 0))))
-	     (declare (ignorable ,position))
-	     (macrolet ((append-byte (byte)
-			  ,(if array
-			       ``(vector-push-extend ,byte ,',bytes)
-			       ``(progn
-				   (setf (aref ,',bytes ,',position) ,byte)
-				   (incf ,',position)))))
-	       ,@(cdr (mappend (lambda (set)
-				 `((setf ,values-ptr (cdr ,values-ptr)
-					 ,value (car ,values-ptr))
-				   ,@set)) sets)))
-	     ,bytes)
+	  (if (and (listp values) (eq (first values) 'list))
+	      `(let ((,bytes ,(or array `(make-array ,(/ bit-size 8) :element-type '(unsigned-byte 8))))
+		     (,position (the fixnum ,(or start 0)))
+		     ,value)
+		 (declare (ignorable ,position))
+		 (macrolet ((append-byte (byte)
+			      ,(if array
+				   ``(vector-push-extend ,byte ,',bytes)
+				   ``(progn
+				       (setf (aref ,',bytes ,',position) ,byte)
+				       (incf ,',position)))))
+		   ,@(mappend (lambda (setval)
+				(let ((set (car setval))
+				      (val (cdr setval)))
+				  `((setf ,value ,val)
+				    ,@set)))
+			      (mapcar #'cons sets (cdr values))))
+		 ,bytes)
+	      `(let* ((,values-ptr ,values)
+		      (,value (car ,values-ptr))
+		      (,bytes ,(or array `(make-array ,(/ bit-size 8) :element-type '(unsigned-byte 8))))
+		      (,position (the fixnum ,(or start 0))))
+		 (declare (ignorable ,position))
+		 (macrolet ((append-byte (byte)
+			      ,(if array
+				   ``(vector-push-extend ,byte ,',bytes)
+				   ``(progn
+				       (setf (aref ,',bytes ,',position) ,byte)
+				       (incf ,',position)))))
+		   ,@(cdr (mappend (lambda (set)
+				     `((setf ,values-ptr (cdr ,values-ptr)
+					     ,value (car ,values-ptr))
+				       ,@set)) sets)))
+		 ,bytes))
 	  (progn
 	    (when (and (listp values) (eq (first values) 'list) (= (length values) 2))
 	      (setf values (second values)))
