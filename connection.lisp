@@ -337,7 +337,7 @@ or an END_PROMISE flag is seen."
   (handler-case-unless *debug-mode*
       (progn
 	(with-slots (decompressor) connection
-	  (when (not (vectorp (getf frame :payload)))
+	  (when (bufferp (getf frame :payload))
 	    (setf (getf frame :payload) (postprocess decompressor (decode decompressor (getf frame :payload)))))))
     (t (e) (connection-error connection :type :compression-error :msg e))))
 
@@ -345,7 +345,7 @@ or an END_PROMISE flag is seen."
   "Encode headers payload and update connection compressor state."
   (handler-case-unless *debug-mode*
       (with-slots (compressor) connection
-	(when (not (vectorp (getf frame :payload)))
+	(when (not (bufferp (getf frame :payload)))
 	  (setf (getf frame :payload) (encode compressor (preprocess compressor (getf frame :payload))))))
     (t (e) (connection-error connection :type :compression-error :msg e))))
 

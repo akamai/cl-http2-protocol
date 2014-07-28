@@ -74,6 +74,10 @@
   (with-slots (window) stream
     (on stream :window (lambda (v) (setf window v)))))
 
+(defmethod print-object ((stream stream) stream*)
+  (print-unreadable-object (stream stream* :type t :identity t)
+    (princ (stream-id stream) stream*)))
+
 (defmethod update-priority ((stream stream) frame)
   (with-slots (priority dependency connection) stream
     (setf priority (getf frame :weight))
@@ -137,7 +141,7 @@ control window size."
     (complete-transition stream frame)))
 
 (defmethod enqueue ((stream stream) frame)
-  (assert (or (listp frame) (functionp frame)) (frame) "Frame: ~S" frame)
+  (assert (or (and (listp frame) (member :type frame)) (functionp frame)) (frame) "Not a frame or function: ~S" frame)
   (with-slots (queue) stream
     (push frame queue)))
 
@@ -145,16 +149,15 @@ control window size."
   (with-slots (queue) stream
     (not (null queue))))
 
-(defmethod headers ((stream stream) headers &key (end-headers t) (end-stream nil))
+(defmethod headers ((stream stream) headers &key (end-headers t) (end-stream nil) (action :send))
   "Sends a HEADERS frame containing HTTP response headers."
-  (let (flags)
-    (when end-headers
-      (push :end-headers flags))
-    (when end-stream
-      (push :end-stream flags))
-    (enqueue stream (list :type :headers
-			  :flags (nreverse flags)
-			  :payload headers))))
+  (let ((frame (list :type :headers
+		     :flags `(,@(if end-headers '(:end-headers)) ,@(if end-stream '(:end-stream)))
+		     :payload headers)))
+    (case action
+      (:send    (send stream frame))
+      (:enqueue (enqueue stream frame))
+      (:return  (list frame)))))
 
 (defmethod promise ((stream stream) headers &optional (end-headers t) block)
   (when (null block)
@@ -171,44 +174,46 @@ performed by the client)."
       (stream-error stream))
     (send stream (list :type :priority :priority p))))
 
-(defmethod data ((stream stream) payload &key (end-stream t))
+(defmethod data ((stream stream) payload &key (end-stream t) (action :send))
   "Sends DATA frame containing response payload."
-  (let (flags)
-    (when end-stream
-      (push :end-stream flags))
-
+  (let (frames)
     (when (bufferp payload)
       (while (> (buffer-size payload) *max-frame-size*)
 	(let ((chunk (buffer-slice! payload 0 *max-frame-size*)))
-	  (enqueue stream (list :type :data :payload chunk)))))
-    
-    (enqueue stream (list :type :data :flags flags :payload payload))))
+	  (push (list :type :data :payload chunk) frames))))
+    (push (list :type :data :flags (if end-stream '(:end-stream)) :payload payload) frames)
+    (let ((frames* (nreverse frames)))
+      (case action
+	(:send    (dolist (frame frames*) (send stream frame)))
+	(:enqueue (dolist (frame frames*) (enqueue stream frame)))
+	(:return  frames*)))))
 
 (defmethod pump-queue ((stream stream) n)
   (with-slots (queue state) stream
     (while-max queue n
-      (let ((payload (shift queue)))
-	(when (functionp payload)
-	  (let* ((callback payload)
-		 (yielded (funcall callback)))
-	    (typecase yielded
-	      (buffer
-	       (unshift callback queue)  ; let buffer-yielding function go again later
-	       (setf payload yielded)
-	       (let ((chunks))
-		 (while (> (buffer-size payload) *max-frame-size*)
-		   (let ((chunk (buffer-slice! payload 0 *max-frame-size*)))
-		     (push chunk chunks)))
-		 (when chunks
-		   (setf payload (shift chunks))
-		   (unshift-all chunks queue))))
-	      (null
-	       (unshift payload queue)))))  ; let guarding function go again later
-	(unless (functionp payload)
-	  (send stream payload)
+      (let ((frame (shift queue)))
+	(when (not (functionp frame))
+	  (assert (member :type frame) (frame) "Frame is not a frame: ~S" frame))
+	(when (functionp frame)
+	  (let* ((callback frame))
+	    (multiple-value-bind (yielded call-again-p)
+		(funcall callback)
+	      (when yielded
+		(when-let (frames (funcall yielded stream))
+		  (assert (every (lambda (f) (member :type f)) frames) (frames) "Frames contains a non-frame: ~S" frames)
+		  (setf frame (first frames))
+		  (dolist (additional-frame (reverse (rest frames)))
+		    (assert (member :type additional-frame) (additional-frame) "Frame is not a frame: ~S" additional-frame)
+		    (unshift additional-frame queue))))
+	      (when call-again-p
+		(unshift callback queue)))))
+	(when (listp frame)
+	  (assert (member :type frame) (frame) "Frame is not a frame: ~S" frame)
+	  ; (format t "(pump-queue ~A):~%  (send ~A ~S)~%" stream stream frame)
+	  (send stream frame)
 	  ;; most implementations seem to nudge the other side after ending headers
 	  (when (and (endp queue)
-		     (member :end-stream (getf payload :flags))
+		     (member :end-stream (getf frame :flags))
 		     (not (eq state :closed)))
 	    (nudge stream)))))))
 
