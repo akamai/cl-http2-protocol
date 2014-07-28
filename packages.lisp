@@ -32,8 +32,8 @@
 	   #:vector-concat #:vector-prepend #:vector-splice
 	   #:vector-delete #:vector-delete-at #:vector-slice
 	   #:vector-inspect #:make-data-vector
-	   #:buffer #:buffer-data #:buffer-empty-p #:buffer-adjust
-	   #:buffer<< #:buffer-simple #:buffer-prepend
+	   #:buffer #:buffer-data #:bufferp #:buffer-empty-p
+	   #:buffer-adjust #:buffer<< #:buffer-simple #:buffer-prepend
 	   #:buffer-firstbyte #:buffer-firstchar #:buffer-getbyte
 	   #:buffer-readbyte #:buffer-setbyte #:buffer-size
 	   #:buffer-read #:buffer-delete-section #:buffer-slice

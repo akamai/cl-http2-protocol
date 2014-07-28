@@ -247,7 +247,6 @@ B - 8-bit integer"
 	     ,@(first sets)
 	     ,value)))))
 
-
 (defun split-if (predicate string)
   "Split STRING on delimiter groups wherein each character is true for function PREDICATE."
   (loop

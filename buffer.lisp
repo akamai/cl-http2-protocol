@@ -198,10 +198,14 @@ is done ignoring errors, so it may bail and use the raw bytes."
   (buffer<< buffer (babel:string-to-octets string)))
 
 (defmethod buffer<< ((buffer buffer) (integer integer))
-  "Modifies BUFFER by concatenating a character designated by INTEGER, and returns BUFFER."
+  "Modifies BUFFER by concatenating an ASCII character designated by INTEGER, and returns BUFFER."
   (assert (<= 0 integer 255) (integer) "Integer provided is ~A but must be from 0-255.")
   (vector-push-extend integer (buffer-data buffer))
   buffer)
+
+(defmethod buffer<< ((buffer buffer) (character character))
+  "Modifies BUFFER by concatenating an ASCII character designated by CHARACTER, and returns BUFFER."
+  (buffer<< buffer (char-code character)))
 
 (defmethod buffer<< ((buffer buffer) (buffer2 buffer))
   "Modifies BUFFER by concatenating the contents of BUFFER2 to BUFFER, and returns BUFFER."
@@ -327,3 +331,7 @@ The bytes are assumed to be in network order in the buffer."
 (defmethod buffer-inspect ((buffer buffer) &key (max-length 512))
   "Calls VECTOR-INSPECT on the contents of BUFFER."
   (vector-inspect (buffer-data buffer) :max-length max-length))
+
+(defmethod print-object ((buffer buffer) stream)
+  (print-unreadable-object (buffer stream :type t :identity t)
+    (princ (buffer-size buffer) stream)))

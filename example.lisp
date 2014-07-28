@@ -137,7 +137,7 @@
     (on conn :goaway
 	(lambda (s e m)
 	  (declare (ignore s))
-	  (format t "goaway error message, code: ~D, message: ~S~%" e (buffer-string m))))
+	  (format t "goaway error message, code: ~D, message: ~S~%" e (if (bufferp m) (buffer-string m) m))))
 
     (on conn :stream
 	(lambda (stream)
@@ -163,7 +163,7 @@
 	    (on stream :data
 		(lambda (d)
 		  (format t "payload chunk: <<~A>>~%" d)
-		  (buffer<< buffer d)))
+		  (buffer<< buffer (getf d :payload))))
 	    
 	    (on stream :window
 		(lambda (w)
@@ -178,7 +178,7 @@
 			(format t "client closed its end of the stream~%")
 
 			(let (response)
-			  (if (string= (req-header ":method") "post")
+			  (if (string= (req-header ":method") "POST")
 			      (let ((post-str (buffer-string buffer)))
 				(format t "Received POST request, payload: ~A~%" post-str)
 				(setf response (buffer-simple "Hello HTTP 2.0! POST payload: " post-str)))
@@ -196,7 +196,13 @@
 			  (data stream response)))))))))
 
     (format t "Entering receive loop~%")
-    (receive-loop net conn)
+    (restart-case
+	(receive-loop net conn)
+      ;; provide a general restart that may be useful in debugging:
+      (goaway ()
+	:report "Send GOAWAY INTERNAL_ERROR."
+	(goaway conn :internal-error)
+	(net-socket-close net)))
     (format t "Leaving receive loop~%")))
 
 (defmacro def-test-server (name &body body)
