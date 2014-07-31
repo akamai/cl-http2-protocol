@@ -2,9 +2,6 @@
 
 (in-package :cl-http2-protocol)
 
-(defparameter *max-frame-size* (1- (expt 2 14))
-  "Maximum size of a DATA payload (16383 bytes, ~16K).")
-
 (defclass flowbuffer-include ()
   ((send-buffer :accessor send-buffer :initarg :send-buffer :initform nil))
   (:documentation "Implementation of stream and connection DATA flow control: frames may

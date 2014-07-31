@@ -2,16 +2,22 @@
 
 (in-package :cl-http2-protocol)
 
-(defparameter *max-payload-size* (1- (expt 2 16))
-  "Maximum frame size (65535 bytes)")
+(defparameter *payload-size-bug-offset* 0
+  "Leave 0 for dealing with correct implementations.")
+
+(defparameter *max-payload-size* (- (1- (expt 2 14)) *payload-size-bug-offset*)
+  "Maximum frame payload size (16383 bytes).")
+
+(defparameter *common-header-size* 8)
+
+(defparameter *max-frame-size* (+ *max-payload-size* *common-header-size*)
+  "Maximum frame size.")
 
 (defparameter *max-stream-id* #x7FFFFFFF
   "Maximum stream ID (2^31)")
 
 (defparameter *max-windowinc* #x7FFFFFFF
   "Maximum window increment value (2^31)")
-
-(defparameter *common-header-length* 8)
 
 (defparameter *frame-types* '(:data          #x0
 			      :headers       #x1
@@ -88,7 +94,7 @@
     (raise :http2-compression-error "Invalid frame type (~A)" (getf frame :type)))
 
   (when (> (getf frame :length) *max-payload-size*)
-    (raise :http2-compression-error "Frame size is too large: ~D" (getf frame :length)))
+    (raise :http2-compression-error "Frame payload size is too large: ~D" (getf frame :length)))
 
   (when (> (getf frame :stream) *max-stream-id*)
     (raise :http2-compression-error "Stream ID (~A) is too large" (getf frame :stream)))
@@ -130,7 +136,7 @@
   "Decodes common 8-byte header."
   (let (frame)
     (destructuring-bind (flength type flags stream)
-	(unpack *headerpack* (buffer-data (buffer-slice buf 0 *common-header-length*)))
+	(unpack *headerpack* (buffer-data (buffer-slice buf 0 *common-header-size*)))
       (setf (getf frame :length) (logand flength *uint32-2msb-reserved*))
 
       (setf (getf frame :type)
@@ -152,7 +158,7 @@
 
 (defmethod generate ((framer framer) frame)
   "Generates encoded HTTP 2.0 frame."
-  (let ((bytes (make-instance 'buffer :data (make-data-vector *common-header-length*)))
+  (let ((bytes (make-instance 'buffer :data (make-data-vector *common-header-size*)))
 	(length 0))
 
     (ensuref (getf frame :flags) nil)

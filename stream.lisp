@@ -178,8 +178,8 @@ performed by the client)."
   "Sends DATA frame containing response payload."
   (let (frames)
     (when (bufferp payload)
-      (while (> (buffer-size payload) *max-frame-size*)
-	(let ((chunk (buffer-slice! payload 0 *max-frame-size*)))
+      (while (> (buffer-size payload) *max-payload-size*)
+	(let ((chunk (buffer-slice! payload 0 *max-payload-size*)))
 	  (push (list :type :data :payload chunk) frames))))
     (push (list :type :data :flags (if end-stream '(:end-stream)) :payload payload) frames)
     (let ((frames* (nreverse frames)))
