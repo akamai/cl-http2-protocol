@@ -65,6 +65,13 @@
     ;; fixme: kein out-of-file wenn (zerop start)?
     start))
 
+(cffi:defcfun ("TLSv1_2_client_method" ssl-TLSv1.2-client-method)
+    ssl-method)
+(cffi:defcfun ("TLSv1_2_server_method" ssl-TLSv1.2-server-method)
+    ssl-method)
+(cffi:defcfun ("TLSv1_2_method" ssl-TLSv1.2-method)
+    ssl-method)
+
 (cffi:defcfun ("SSL_CTX_set_next_protos_advertised_cb" ssl-ctx-set-next-protos-advertised-cb)
     :void
   (ctx ssl-ctx)
@@ -300,7 +307,7 @@
 
 ; add NPN support
 (defun make-ssl-client-stream
-    (socket &key certificate key password (method 'ssl-v23-method) external-format
+    (socket &key certificate key password (method 'ssl-tlsv1.2-method) external-format
      close-callback (unwrap-stream-p t) servername next-protos-spec)
   "Returns an SSL stream for the client socket descriptor SOCKET.
 CERTIFICATE is the path to a file containing the PEM-encoded certificate for

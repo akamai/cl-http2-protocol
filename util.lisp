@@ -4,8 +4,11 @@
 
 (defmacro defalias (name existing)
   "Define NAME as a synonym for an EXISTING function or macro."
-  `(defmacro ,name (&rest args)
-     `(,',existing ,@args)))
+  `(progn
+     (defun ,name (&rest args)
+       `(,',existing ,@args))
+     (define-compiler-macro ,name (&rest args)
+       `(,',existing ,@args))))
 
 (defmacro shift (place)
   "Like POP only at the end of the list designated by PLACE."
