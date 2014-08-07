@@ -74,9 +74,10 @@
   (with-slots (window) stream
     (on stream :window (lambda (v) (setf window v)))))
 
-(defmethod print-object ((stream stream) stream*)
-  (print-unreadable-object (stream stream* :type t :identity t)
-    (princ (stream-id stream) stream*)))
+(defmethod print-object ((stream stream) print-stream)
+  (with-slots (id) stream
+    (print-unreadable-object (stream print-stream :type t :identity t)
+      (format print-stream ":STREAM ~D" id))))
 
 (defmethod update-priority ((stream stream) frame)
   (with-slots (priority dependency connection) stream
@@ -257,6 +258,7 @@ to performing any application processing."
 (defmethod connected ((stream stream))
   "Marks a stream as a successful CONNECT method stream where the 2xx
 success headers have been sent and the stream is ready for DATA frames."
+  (format t "(connected ~S)~%" stream)
   (change-class stream 'connect-stream))
 
 ; HTTP 2.0 Stream States
@@ -529,7 +531,7 @@ success headers have been sent and the stream is ready for DATA frames."
 (defclass connect-stream (stream) ()
   (:documentation "Subclass of STREAM for CONNECT method."))
 
-(defparameter *allowed-connect-stream-frame-types* '((:data :rst-stream :window-update :priority)))
+(defparameter *allowed-connect-stream-frame-types* '(:data :rst-stream :window-update :priority))
 
 (defmethod receive :before ((stream connect-stream) frame)
   (unless (member (getf frame :type) *allowed-connect-stream-frame-types*)

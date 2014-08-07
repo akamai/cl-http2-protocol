@@ -301,6 +301,7 @@
 (defun receive-loop (net conn)
   (handler-case
       (loop
+	 (format t "In receive loop~%")
 	 (while (and (pump-stream-queues conn 2)
 		     (not (net-input-ready net))))
 	 (when-let (bytes (receive-bytes net))

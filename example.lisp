@@ -177,28 +177,33 @@
 		      (macrolet ((req-header (name) `(cdr (assoc ,name req :test #'string=))))
 			(format t "client closed its end of the stream~%")
 
-			(let (response)
-			  (if (string= (req-header ":method") "POST")
-			      (let ((post-str (buffer-string buffer)))
-				(format t "Received POST request, payload: ~A~%" post-str)
-				(setf response (buffer-simple "Hello HTTP 2.0! POST payload: " post-str)))
-			      (progn
-				(format t "Received GET request~%")
-				(setf response (buffer-simple "Hello HTTP 2.0! GET request"))))
+			(let ((method (req-header ":method"))
+			      content)
+			  (switch (method :test #'string=)
+			    ("GET"
+			     (format t "Received GET request~%")
+			     (setf content (buffer-simple "Hello HTTP 2.0! GET request")))
+			    ("POST"
+			     (let ((post-str (buffer-string buffer)))
+			       (format t "Received POST request, payload: ~A~%" post-str)
+			       (setf content (buffer-simple "Hello HTTP 2.0! POST payload: " post-str))))
+			    (otherwise
+			     ;; should be better handled
+			     (setf content (buffer-simple ""))))
 		      
 			  (headers stream `((":status"        . "200")
-					    ("content-length" . ,(format nil "~D" (buffer-size response)))
+					    ("content-length" . ,(format nil "~D" (buffer-size content)))
 					    ("content-type"   . "text/plain"))
 				   :end-stream nil)
 		      
-					; split response into multiple DATA frames
-			  (data stream (buffer-slice! response 0 5) :end-stream nil)
-			  (data stream response)))))))))
+			  ;; split content into multiple DATA frames
+			  (data stream (buffer-slice! content 0 5) :end-stream nil)
+			  (data stream content)))))))))
 
     (format t "Entering receive loop~%")
     (restart-case
 	(receive-loop net conn)
-      ;; provide a general restart that may be useful in debugging:
+      ;; provide a general restart that may be useful during debugging:
       (goaway ()
 	:report "Send GOAWAY INTERNAL_ERROR."
 	(goaway conn :internal-error)

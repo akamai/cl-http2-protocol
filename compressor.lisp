@@ -471,7 +471,12 @@ entry of the header table is always associated to the index 1."
 	 (bytes (buffer-read buf length)))
     (if huffman-p
 	(huffman-decode-buffer-to-string bytes length)
-	(buffer-string bytes))))
+	(handler-case
+	    (buffer-string bytes)
+	  (babel-encodings:character-decoding-error ()
+	    (when *debug-mode*
+	      (warn "UTF-8 failed: ~S" (buffer-data bytes)))
+	    (buffer-ascii bytes))))))
 
 (defmethod header ((decompressor decompressor) buf &optional header)
   "Decodes header command from provided buffer."
@@ -546,9 +551,7 @@ set are emitted, during the reference set emission.
 
 For the reference set emission, each header contained in the
 reference set that has not been emitted during the processing of the
-header block is emitted.
-
-- http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-03#section-3.2.2"
+header block is emitted."
   (with-slots (cc) decompressor
     (let (set)
       (while (not (buffer-empty-p buf))

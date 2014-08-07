@@ -321,7 +321,8 @@ The bytes are assumed to be in network order in the buffer."
 	    :start1 start1 :end1 end1 :start2 start2 :end2 end2 :from-end from-end))
 
 (defmethod buffer-string ((buffer buffer))
-  "Returns a string representation of BUFFER, decoding UTF-8. Does not modify BUFFER."
+  "Returns a string representation of BUFFER, decoding UTF-8. Does not modify BUFFER.
+May signal BABEL-ENCODINGS:CHARACTER-DECODING-ERROR in the event of a decoding error."
   (babel:octets-to-string (buffer-data buffer)))
 
 (defmethod buffer-ascii ((buffer buffer))
@@ -334,4 +335,4 @@ The bytes are assumed to be in network order in the buffer."
 
 (defmethod print-object ((buffer buffer) stream)
   (print-unreadable-object (buffer stream :type t :identity t)
-    (princ (buffer-size buffer) stream)))
+    (format stream ":LENGTH ~D" (buffer-size buffer))))
