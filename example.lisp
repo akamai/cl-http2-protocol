@@ -157,8 +157,12 @@
 	    (on stream :headers
 		(lambda (h)
 		  (setf req h)
-		  (format t "request headers: ~S~%" h)
-		  ))
+		  (format t "request headers: ~S~%" req)
+		  (macrolet ((req-header (name) `(cdr (assoc ,name req :test #'string=))))
+		    (when (string= (req-header ":method") "CONNECT") ; END_STREAM won't be set so handle here
+		      (if request-handler
+			  (funcall request-handler stream req)
+			  (headers stream `((":status" . "405") ("allow" . "GET")) :end-stream t))))))
 	      
 	    (on stream :data
 		(lambda (d)

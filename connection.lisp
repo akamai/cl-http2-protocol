@@ -126,17 +126,15 @@ stream frames are passed to appropriate stream objects."
 	    (when (not (member :end-headers (getf frame :flags)))
 	      (return-from receive))
 
-	    (let ((headers (flatten-n (mapcar (lambda (chunk)
-						(decode-headers connection chunk)
-						(getf chunk :payload))
-					      continuation) 1)))
-
-	      (setf frame (shift continuation))
-	      (setf continuation nil)
-
-	      (remf frame :length)
-	      (setf (getf frame :payload) headers)
-	      (push :end-headers (getf frame :flags))))
+	    (let* ((first  (shift continuation))
+		   (buffer (reduce #'buffer<< (nreverse continuation)
+				   :key (lambda (f) (getf f :payload))
+				   :initial-value (getf first :payload))))
+	      (setf continuation nil
+		    frame first
+		    (getf frame :length) (buffer-size buffer))
+	      (push :end-headers (getf frame :flags))
+	      (decode-headers connection frame)))
 
 	  ; SETTINGS frames always apply to a connection, never a single stream.
 	  ; The stream identifier for a settings frame MUST be zero.  If an

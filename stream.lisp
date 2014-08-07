@@ -141,14 +141,46 @@ control window size."
 
     (complete-transition stream frame)))
 
+(defun framep (frame)
+  (and (listp frame) (member :type frame)))
+
+(defun queueablep (frame)
+  (or (and (listp frame) (member :type frame))
+      (functionp frame)))
+
+(defmethod clear-queue ((stream stream))
+  (with-slots (queue) stream
+    (setf queue nil)))
+
 (defmethod enqueue ((stream stream) frame)
-  (assert (or (and (listp frame) (member :type frame)) (functionp frame)) (frame) "Not a frame or function: ~S" frame)
+  (check-type frame (satisfies queueablep))
   (with-slots (queue) stream
     (push frame queue)))
 
+(defmethod enqueue-many ((stream stream) (frames list))
+  (dolist (frame frames)
+    (enqueue stream frame)))
+
+(defmethod dequeue ((stream stream))
+  (with-slots (queue) stream
+    (shift queue)))
+
+(defmethod enqueue-first ((stream stream) frame)
+  (check-type frame (satisfies queueablep))
+  (with-slots (queue) stream
+    (unshift frame queue)))
+
+(defmethod enqueue-first-many ((stream stream) (frames list))
+  (dolist (frame (reverse frames))
+    (enqueue-first stream frame)))
+
+(defmethod dequeue-back ((stream stream))
+  (with-slots (queue) stream
+    (pop queue)))
+
 (defmethod queue-populated-p ((stream stream))
   (with-slots (queue) stream
-    (not (null queue))))
+    (not (endp queue))))
 
 (defmethod headers ((stream stream) headers &key (end-headers t) (end-stream nil) (action :send))
   "Sends a HEADERS frame containing HTTP response headers."
@@ -190,33 +222,19 @@ performed by the client)."
 	(:return  frames*)))))
 
 (defmethod pump-queue ((stream stream) n)
-  (with-slots (queue state) stream
-    (while-max queue n
-      (let ((frame (shift queue)))
-	(when (not (functionp frame))
-	  (assert (member :type frame) (frame) "Frame is not a frame: ~S" frame))
-	(when (functionp frame)
-	  (let* ((callback frame))
-	    (multiple-value-bind (yielded call-again-p)
-		(funcall callback)
-	      (when yielded
-		(when-let (frames (funcall yielded stream))
-		  (assert (every (lambda (f) (member :type f)) frames) (frames) "Frames contains a non-frame: ~S" frames)
-		  (setf frame (first frames))
-		  (dolist (additional-frame (reverse (rest frames)))
-		    (assert (member :type additional-frame) (additional-frame) "Frame is not a frame: ~S" additional-frame)
-		    (unshift additional-frame queue))))
-	      (when call-again-p
-		(unshift callback queue)))))
-	(when (listp frame)
-	  (assert (member :type frame) (frame) "Frame is not a frame: ~S" frame)
-	  ; (format t "(pump-queue ~A):~%  (send ~A ~S)~%" stream stream frame)
-	  (send stream frame)
-	  ;; most implementations seem to nudge the other side after ending headers
-	  (when (and (endp queue)
-		     (member :end-stream (getf frame :flags))
-		     (not (eq state :closed)))
-	    (nudge stream)))))))
+  (while-max (queue-populated-p stream) n
+    (let ((frame (dequeue stream)))
+      (when (functionp frame)
+	(let ((callback frame))
+	  (multiple-value-bind (yielded call-again-p) (funcall callback)
+	    (when call-again-p
+	      (enqueue-first stream callback))
+	    (when yielded
+	      (when-let (frames (funcall yielded stream))
+		(setf frame (first frames))
+		(enqueue-first-many stream (rest frames)))))))
+      (when (framep frame)
+	(send stream frame)))))
 
 (defmethod stream-close ((stream stream) &optional (error :stream-closed)) ; @ ***
   "Sends a RST_STREAM frame which closes current stream - this does not

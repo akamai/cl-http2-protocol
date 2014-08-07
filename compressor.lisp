@@ -90,17 +90,20 @@
     (unless limit
       (setf limit settings-limit))))
 
+(defmethod print-object ((encoding-context encoding-context) stream)
+  (with-slots (type) encoding-context
+    (print-unreadable-object (encoding-context stream :type t :identity t)
+      (format stream ":TYPE ~S" type))))
+
 (defmethod process ((encoding-context encoding-context) cmd)
-  "Performs differential coding based on provided command type.
-- http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-03#section-3.2"
+  "Performs differential coding based on provided command type"
   (with-slots (refset table settings-limit limit) encoding-context
     (let (emit evicted)
 
       (if (eq (getf cmd :type) :context)
 	  (case (getf cmd :context-type)
 	    (:reset
-	     (setf evicted (map 'list #'car refset)
-		   (fill-pointer refset) 0))
+	     (setf (fill-pointer refset) 0))
 	    (:new-max-size
 	     (when (> (getf cmd :value) settings-limit)
 	       (raise 'http2-compression-error "Attempt to set table limit above SETTINGS_HEADER_TABLE_SIZE."))
@@ -116,6 +119,7 @@
 
 		    (let* ((idx (1- idx1))
 			   (cur (position idx refset :key #'car)))
+		      (declare ((integer 0 *) idx))
 		      (if cur
 			  (vector-delete-at refset cur)
 			  (let ((length-table (length table)))
