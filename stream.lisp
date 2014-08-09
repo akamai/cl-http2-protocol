@@ -222,19 +222,22 @@ performed by the client)."
 	(:return  frames*)))))
 
 (defmethod pump-queue ((stream stream) n)
-  (while-max (queue-populated-p stream) n
-    (let ((frame (dequeue stream)))
-      (when (functionp frame)
-	(let ((callback frame))
-	  (multiple-value-bind (yielded call-again-p) (funcall callback)
-	    (when call-again-p
-	      (enqueue-first stream callback))
-	    (when yielded
-	      (when-let (frames (funcall yielded stream))
-		(setf frame (first frames))
-		(enqueue-first-many stream (rest frames)))))))
-      (when (framep frame)
-	(send stream frame)))))
+  (let ((yield-now-p nil))
+    (while-max (and (queue-populated-p stream) (not yield-now-p)) n
+      (let ((frame (dequeue stream)))
+	(when (functionp frame)
+	  (let ((callback frame))
+	    (multiple-value-bind (yielded call-again-p skip-rest-p) (funcall callback)
+	      (when call-again-p
+		(enqueue-first stream callback))
+	      (when yielded
+		(when-let (frames (funcall yielded stream))
+		  (setf frame (first frames))
+		  (enqueue-first-many stream (rest frames))))
+	      (when skip-rest-p
+		(setf yield-now-p t)))))
+	(when (framep frame)
+	  (send stream frame))))))
 
 (defmethod stream-close ((stream stream) &optional (error :stream-closed)) ; @ ***
   "Sends a RST_STREAM frame which closes current stream - this does not
