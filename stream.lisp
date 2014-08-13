@@ -77,7 +77,7 @@
 (defmethod print-object ((stream stream) print-stream)
   (with-slots (id) stream
     (print-unreadable-object (stream print-stream :type t :identity t)
-      (format print-stream ":STREAM ~D" id))))
+      (format print-stream ":ID ~D" id))))
 
 (defmethod update-priority ((stream stream) frame)
   (with-slots (priority dependency connection) stream
@@ -232,8 +232,11 @@ performed by the client)."
 		(enqueue-first stream callback))
 	      (when yielded
 		(when-let (frames (funcall yielded stream))
-		  (setf frame (first frames))
-		  (enqueue-first-many stream (rest frames))))
+		  (if (framep (first frames))
+		      (progn
+			(setf frame (first frames))
+			(enqueue-first-many stream (rest frames)))
+		      (enqueue-first-many stream frames))))
 	      (when skip-rest-p
 		(setf yield-now-p t)))))
 	(when (framep frame)
