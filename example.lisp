@@ -141,6 +141,8 @@
 
     (on conn :stream
 	(lambda (stream)
+	  (format t "connection has new stream~%")
+
 	  (let (req
 		(buffer (make-instance 'buffer)))
 	      
@@ -162,7 +164,7 @@
 		    (when (string= (req-header ":method") "CONNECT") ; END_STREAM won't be set so handle here
 		      (if request-handler
 			  (funcall request-handler stream req)
-			  (headers stream `((":status" . "405") ("allow" . "GET")) :end-stream t))))))
+			  (headers stream `((":status" . "405") ("allow" . "GET, POST")) :end-stream t))))))
 	      
 	    (on stream :data
 		(lambda (d)
@@ -176,33 +178,35 @@
 	    (on stream :half-close
 		(if request-handler
 		    (lambda ()
-		      (funcall request-handler stream req))
+		      (when (eq (stream-closed stream) :half-closed-remote)
+			(funcall request-handler stream req)))
 		    (lambda ()
-		      (macrolet ((req-header (name) `(cdr (assoc ,name req :test #'string=))))
-			(format t "client closed its end of the stream~%")
+		      (when (eq (stream-closed stream) :half-closed-remote)
+			(macrolet ((req-header (name) `(cdr (assoc ,name req :test #'string=))))
+			  (format t "client closed its end of the stream~%")
 
-			(let ((method (req-header ":method"))
-			      content)
-			  (switch (method :test #'string=)
-			    ("GET"
-			     (format t "Received GET request~%")
-			     (setf content (buffer-simple "Hello HTTP 2.0! GET request")))
-			    ("POST"
-			     (let ((post-str (buffer-string buffer)))
-			       (format t "Received POST request, payload: ~A~%" post-str)
-			       (setf content (buffer-simple "Hello HTTP 2.0! POST payload: " post-str))))
-			    (otherwise
-			     ;; should be better handled
-			     (setf content (buffer-simple ""))))
+			  (let ((method (req-header ":method"))
+				content)
+			    (switch (method :test #'string=)
+			      ("GET"
+			       (format t "Received GET request~%")
+			       (setf content (buffer-simple "Hello HTTP 2.0! GET request")))
+			      ("POST"
+			       (let ((post-str (buffer-string buffer)))
+				 (format t "Received POST request, payload: ~A~%" post-str)
+				 (setf content (buffer-simple "Hello HTTP 2.0! POST payload: " post-str))))
+			      (otherwise
+			       ;; should be better handled
+			       (setf content (buffer-simple ""))))
 		      
-			  (headers stream `((":status"        . "200")
-					    ("content-length" . ,(format nil "~D" (buffer-size content)))
-					    ("content-type"   . "text/plain"))
-				   :end-stream nil)
+			    (headers stream `((":status"        . "200")
+					      ("content-length" . ,(format nil "~D" (buffer-size content)))
+					      ("content-type"   . "text/plain"))
+				     :end-stream nil)
 		      
-			  ;; split content into multiple DATA frames
-			  (data stream (buffer-slice! content 0 5) :end-stream nil)
-			  (data stream content)))))))))
+			    ;; split content into multiple DATA frames
+			    (data stream (buffer-slice! content 0 5) :end-stream nil)
+			    (data stream content))))))))))
 
     (format t "Entering receive loop~%")
     (restart-case
