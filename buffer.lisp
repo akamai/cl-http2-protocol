@@ -172,6 +172,9 @@ is done ignoring errors, so it may bail and use the raw bytes."
 (defmethod bufferp (non-buffer)
   nil)
 
+(define-compiler-macro bufferp (item)
+  `(typep ,item 'buffer))
+
 (defmethod buffer-empty-p ((buffer buffer))
   "Pedicate to indicate T if BUFFER is empty or NIL if BUFFER contains bytes."
   (zerop (length (buffer-data buffer))))
