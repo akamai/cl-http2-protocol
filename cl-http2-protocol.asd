@@ -20,7 +20,9 @@ For other implementations, see: https://github.com/http2/http2-spec/wiki/Impleme
 	       :babel
 	       :puri
 	       :usocket
-	       :cl+ssl)
+	       :cl+ssl
+	       :cl-async
+	       :cl-async-ssl)
   :components ((:file "packages")
 	       (:file "util" :depends-on ("packages"))
 	       (:file "error" :depends-on ("util"))

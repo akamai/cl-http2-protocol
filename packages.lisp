@@ -56,6 +56,6 @@
 (defpackage :cl-http2-protocol-example
   (:nicknames :http2-example)
   (:documentation "HTTP/2 draft-13/hpack-08 (h2-13) simple example client/server.")
-  (:use :cl :alexandria :anaphora :babel :puri :usocket :cl+ssl :http2-util :http2)
+  (:use :cl :alexandria :anaphora :babel :cl-async :cl-async-ssl :puri :cl+ssl :http2-util :http2)
   (:export #:example-client #:example-server
 	   #:*dump-bytes* #:*dump-bytes-stream* #:*dump-bytes-hook*))

@@ -38,6 +38,9 @@
 (defmethod initialize-instance :after ((connection connection) &key)
   (setf (slot-value connection 'window-limit) (slot-value connection 'window)))
 
+(defmethod shutdown-connection ((connection connection))
+  (clear-stream-queues connection))
+
 (defgeneric send (obj frame))
 
 (defmethod new-stream ((connection connection) &optional (priority *default-priority*) (parent nil))
@@ -93,12 +96,12 @@ stream frames are passed to appropriate stream objects."
       (with-slots (state recv-buffer stream-limit window-limit continuation streams framer) connection
 	(buffer<< recv-buffer data)
 
-	; Upon establishment of a TCP connection and determination that
-	; HTTP/2.0 will be used by both peers, each endpoint MUST send a
-	; connection header as a final confirmation and to establish the
-	; initial settings for the HTTP/2.0 connection.
-	; Client connection header is 24 byte connection header followed by
-	; SETTINGS frame. Server connection header is SETTINGS frame only.
+	;; Upon establishment of a TCP connection and determination that
+	;; HTTP/2.0 will be used by both peers, each endpoint MUST send a
+	;; connection header as a final confirmation and to establish the
+	;; initial settings for the HTTP/2.0 connection.
+	;; Client connection header is 24 byte connection header followed by
+	;; SETTINGS frame. Server connection header is SETTINGS frame only.
 	(when (eq state :new)
 	  (if (< (buffer-size recv-buffer) #.(buffer-size *connection-preface*))
 	      (if (buffer-mismatch recv-buffer
@@ -115,107 +118,107 @@ stream frames are passed to appropriate stream objects."
 		    (settings connection stream-limit window-limit)))))
 
 	(while-let (frame (parse framer recv-buffer))
-	  ; Header blocks MUST be transmitted as a contiguous sequence of frames
-	  ; with no interleaved frames of any other type, or from any other stream.
-	  (when continuation
-	    (when (or (not (eq (getf frame :type) :continuation))
-		      (not (equal (getf frame :stream) (getf (first continuation) :stream)))) ; *** equal ?
-	      (connection-error connection))
+	  (block this-frame
 
-	    (push frame continuation)
-	    (when (not (member :end-headers (getf frame :flags)))
-	      (return-from receive))
+	    ;; Header blocks MUST be transmitted as a contiguous sequence of frames
+	    ;; with no interleaved frames of any other type, or from any other stream.
+	    (when continuation
+	      (when (or (not (eq (getf frame :type) :continuation))
+			(not (eq (getf frame :stream) (getf (first continuation) :stream))))
+		(connection-error connection :msg "Expected CONTINUATION frame"))
 
-	    (let* ((first  (shift continuation))
-		   (buffer (reduce #'buffer<< (nreverse continuation)
-				   :key (lambda (f) (getf f :payload))
-				   :initial-value (getf first :payload))))
-	      (setf continuation nil
-		    frame first
-		    (getf frame :length) (buffer-size buffer))
-	      (push :end-headers (getf frame :flags))
-	      (decode-headers connection frame)))
+	      (push frame continuation)
+	      (when (not (member :end-headers (getf frame :flags)))
+		(return-from this-frame))
 
-	  ; SETTINGS frames always apply to a connection, never a single stream.
-	  ; The stream identifier for a settings frame MUST be zero.  If an
-	  ; endpoint receives a SETTINGS frame whose stream identifier field is
-	  ; anything other than 0x0, the endpoint MUST respond with a connection
-	  ; error (Section 5.4.1) of type PROTOCOL_ERROR.
-	  (if (connection-frame-p connection frame)
-	      (connection-management connection frame)
-	      (case (getf frame :type)
-		(:headers
-	         ; The last frame in a sequence of HEADERS/CONTINUATION
-	         ; frames MUST have the END_HEADERS flag set.
-		 (when (not (member :end-headers (getf frame :flags)))
-		   (push frame continuation)
-		   (return-from receive))
+	      (let ((list (nreverse continuation)))
+		(setf continuation nil)
+		(let ((combined-buffer (reduce #'buffer<< list :key (lambda (f) (getf f :payload)))))
+		  (setf frame (first list)
+			(getf frame :payload) combined-buffer
+			(getf frame :length) (buffer-size combined-buffer))
+		  (push :end-headers (getf frame :flags)))))
 
-	  	 ; After sending a GOAWAY frame, the sender can discard frames
-	  	 ; for new streams.  However, any frames that alter connection
-	  	 ; state cannot be completely ignored.  For instance, HEADERS,
-	  	 ; PUSH_PROMISE and CONTINUATION frames MUST be minimally
-	  	 ; processed to ensure a consistent compression state
-		 (decode-headers connection frame)
-		 (when (eq state :closed)
-		   (return-from receive))
+	    ;; SETTINGS frames always apply to a connection, never a single stream.
+	    ;; The stream identifier for a settings frame MUST be zero.  If an
+	    ;; endpoint receives a SETTINGS frame whose stream identifier field is
+	    ;; anything other than 0x0, the endpoint MUST respond with a connection
+	    ;; error (Section 5.4.1) of type PROTOCOL_ERROR.
+	    (if (connection-frame-p connection frame)
+		(connection-management connection frame)
+		(case (getf frame :type)
+		  (:headers
+		   ;; The last frame in a sequence of HEADERS/CONTINUATION
+		   ;; frames MUST have the END_HEADERS flag set.
+		   (when (not (member :end-headers (getf frame :flags)))
+		     (push frame continuation)
+		     (return-from this-frame))
 
-		 (let ((stream (gethash (getf frame :stream) streams)))
-		   (when (null stream)
-		     (setf stream (activate-stream connection
-				   (getf frame :stream)
-				   (or (getf frame :weight) *default-priority*)))
-		     (emit connection :stream stream))
+		   ;; After sending a GOAWAY frame, the sender can discard frames
+		   ;; for new streams.  However, any frames that alter connection
+		   ;; state cannot be completely ignored.  For instance, HEADERS,
+		   ;; PUSH_PROMISE and CONTINUATION frames MUST be minimally
+		   ;; processed to ensure a consistent compression state
+		   (decode-headers connection frame)
+		   (when (eq state :closed)
+		     (return-from this-frame))
 
-		   (stream<< stream frame)))
-		(:push-promise
-		 ; The last frame in a sequence of PUSH_PROMISE/CONTINUATION
-		 ; frames MUST have the END_HEADERS flag set
-		 (when (not (member :end-headers (getf frame :flags)))
-		   (push frame continuation)
-		   (return-from receive))
+		   (let ((stream (gethash (getf frame :stream) streams)))
+		     (when (null stream)
+		       (setf stream (activate-stream connection
+						     (getf frame :stream)
+						     (or (getf frame :weight) *default-priority*)))
+		       (emit connection :stream stream))
+
+		     (stream<< stream frame)))
+		  (:push-promise
+		   ;; The last frame in a sequence of PUSH_PROMISE/CONTINUATION
+		   ;; frames MUST have the END_HEADERS flag set
+		   (when (not (member :end-headers (getf frame :flags)))
+		     (push frame continuation)
+		     (return-from this-frame))
 	     
-		 (decode-headers connection frame)
-		 (when (eq state :closed)
-		   (return-from receive))
+		   (decode-headers connection frame)
+		   (when (eq state :closed)
+		     (return-from this-frame))
 	     
-		 ; PUSH_PROMISE frames MUST be associated with an existing, peer-
-		 ; initiated stream... A receiver MUST treat the receipt of a
-		 ; PUSH_PROMISE on a stream that is neither "open" nor
-		 ; "half-closed (local)" as a connection error (Section 5.4.1) of
-		 ; type PROTOCOL_ERROR. Similarly, a receiver MUST treat the
-		 ; receipt of a PUSH_PROMISE that promises an illegal stream
-		 ; identifier (Section 5.1.1) (that is, an identifier for a stream
-		 ; that is not currently in the "idle" state) as a connection error
-		 ; (Section 5.4.1) of type PROTOCOL_ERROR, unless the receiver
-		 ; recently sent a RST_STREAM frame to cancel the associated stream.
-		 (let ((parent (gethash (getf frame :stream) streams))
-		       (pid (getf frame :promise-stream)))
+		   ;; PUSH_PROMISE frames MUST be associated with an existing, peer-
+		   ;; initiated stream... A receiver MUST treat the receipt of a
+		   ;; PUSH_PROMISE on a stream that is neither "open" nor
+		   ;; "half-closed (local)" as a connection error (Section 5.4.1) of
+		   ;; type PROTOCOL_ERROR. Similarly, a receiver MUST treat the
+		   ;; receipt of a PUSH_PROMISE that promises an illegal stream
+		   ;; identifier (Section 5.1.1) (that is, an identifier for a stream
+		   ;; that is not currently in the "idle" state) as a connection error
+		   ;; (Section 5.4.1) of type PROTOCOL_ERROR, unless the receiver
+		   ;; recently sent a RST_STREAM frame to cancel the associated stream.
+		   (let ((parent (gethash (getf frame :stream) streams))
+			 (pid (getf frame :promise-stream)))
 
-		   (when (null parent)
-		     (connection-error connection :msg "missing parent ID"))
+		     (when (null parent)
+		       (connection-error connection :msg "missing parent ID"))
 
-		   (if (not (member (stream-state parent) '(:open :half-closed-local)))
-		       ; An endpoint might receive a PUSH_PROMISE frame after it sends
-		       ; RST_STREAM.  PUSH_PROMISE causes a stream to become "reserved".
-		       ; The RST_STREAM does not cancel any promised stream.  Therefore, if
-		       ; promised streams are not desired, a RST_STREAM can be used to
-		       ; close any of those streams.
-		       (if (eq (stream-closed parent) :local-rst)
-			   ; We can either (a) 'resurrect' the parent, or (b) RST_STREAM
-			   ; ... sticking with (b), might need to revisit later.
-			   (send connection (list :type :rst-stream :stream pid :error :refused-stream))
-			   (connection-error connection)))
+		     (if (not (member (stream-state parent) '(:open :half-closed-local)))
+			 ;; An endpoint might receive a PUSH_PROMISE frame after it sends
+			 ;; RST_STREAM.  PUSH_PROMISE causes a stream to become "reserved".
+			 ;; The RST_STREAM does not cancel any promised stream.  Therefore, if
+			 ;; promised streams are not desired, a RST_STREAM can be used to
+			 ;; close any of those streams.
+			 (if (eq (stream-closed parent) :local-rst)
+			     ;; We can either (a) 'resurrect' the parent, or (b) RST_STREAM
+			     ;; ... sticking with (b), might need to revisit later.
+			     (send connection (list :type :rst-stream :stream pid :error :refused-stream))
+			     (connection-error connection)))
 
-		   (let ((stream (activate-stream pid *default-priority* parent)))
-		     (emit connection :promise stream)
-		     (stream<< stream frame))))
-		(otherwise
-		 (if-let (stream (gethash (getf frame :stream) streams))
-		   (stream<< stream frame)
-		   ; An endpoint that receives an unexpected stream identifier
-		   ; MUST respond with a connection error of type PROTOCOL_ERROR.
-		   (connection-error connection)))))))
+		     (let ((stream (activate-stream pid *default-priority* parent)))
+		       (emit connection :promise stream)
+		       (stream<< stream frame))))
+		  (otherwise
+		   (if-let (stream (gethash (getf frame :stream) streams))
+		     (stream<< stream frame)
+		     ;; An endpoint that receives an unexpected stream identifier
+		     ;; MUST respond with a connection error of type PROTOCOL_ERROR.
+		     (connection-error connection))))))))
     (t (e) (declare (ignore e)) (connection-error connection))))
 
 (defalias connection<< receive)
@@ -370,6 +373,7 @@ connection management callbacks."
       (setf (gethash id streams) stream))))
 
 (defmethod pump-stream-queues ((connection connection) n)
+  (format t "(pump-stream-queues ~S)~%" connection)
   (with-slots (streams) connection
     (loop
        with pending = (the boolean nil)  ; will set to t if any streams have queues or dependencies left at end
@@ -396,6 +400,12 @@ connection management callbacks."
 				when (eq (stream-dependency other-stream) stream)
 				do (setf (stream-dependency other-stream) nil)))))
 		 (return pending)))))
+
+(defmethod clear-stream-queues ((connection connection))
+  (with-slots (streams) connection
+    (dohash (key stream streams)
+      (when (queue-populated-p stream)
+	(clear-queue stream)))))
 
 ;; DRAIN-SEND-BUFFER is a FLOW-BUFFER method, but enforce ENCODE when used
 ;; on CONNECTION subclass, as we want encoding when calling from here

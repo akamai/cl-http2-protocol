@@ -259,6 +259,7 @@ does not contain enough data, no further work is performed."
     (buffer-read buf 8)
 
     ; (format t "http2 frame header: ~S~%http2 frame payload: ~A~%" frame (subseq (buffer-data buf) 0 (getf frame :length)))
+    ; (format t "(parse ~S):~%  frame header: ~S~%" framer frame)
 
     (let ((payload (buffer-read buf (getf frame :length))))
 
@@ -308,7 +309,7 @@ does not contain enough data, no further work is performed."
 	 (setf (getf frame :weight) (1+ (buffer-readbyte payload))))
 
 	(:rst-stream
-	 (getf frame :error (unpack-error (buffer-read-uint32 payload))))
+	 (setf (getf frame :error) (unpack-error (buffer-read-uint32 payload))))
 
 	(:settings
 	 (loop

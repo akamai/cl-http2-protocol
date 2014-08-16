@@ -179,7 +179,7 @@
 (defconstant +NID_X9_62_prime256v1+ 415)
 
 (cffi:defcstruct server-tlsextnextprotoctx
-  (data :string)
+  (data :pointer)
   (len :unsigned-int))
 
 (cffi:defcstruct client-tlsextnextprotoctx
@@ -188,16 +188,15 @@
   (status :int))
 
 (cffi:defcallback lisp-server-next-proto-cb :int
-    ((s ssl-pointer) (data (:pointer :pointer)) (len (:pointer :unsigned-int))
-     (arg (:pointer server-tlsextnextprotoctx)))
+    ((s ssl-pointer) (data* (:pointer :pointer)) (len* (:pointer :unsigned-int))
+     (arg (:pointer (:struct server-tlsextnextprotoctx))))
   (declare (ignore s))
   (let (tmp-data tmp-len)
-    (cffi:with-foreign-slots ((data len) arg server-tlsextnextprotoctx)
+    (cffi:with-foreign-slots ((data len) arg (:struct server-tlsextnextprotoctx))
       (setf tmp-data data
 	    tmp-len len))
-    ; (format t "lisp-server-next-proto-cb: ~S ~S~%" tmp-data tmp-len)
-    (setf (cffi:mem-ref data :string) tmp-data
-	  (cffi:mem-ref len :unsigned-int) tmp-len))
+    (setf (cffi:mem-ref data* :string) tmp-data
+	  (cffi:mem-ref len* :unsigned-int) tmp-len))
   +SSL_TLSEXT_ERR_OK+)
 
 (cffi:defcallback lisp-client-next-proto-cb :int
@@ -274,7 +273,7 @@
 (defparameter *dh2048* (cffi:null-pointer))
 
 (defun init-dhparams (filename)
-  (let ((bp (bio-new-file filename "r")))
+  (let ((bp (bio-new-file (namestring filename) "r")))
     (when (cffi:null-pointer-p bp)
       (error "Error opening DH 2048 file"))
     (when *dh2048*

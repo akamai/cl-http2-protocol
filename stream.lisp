@@ -72,7 +72,8 @@
 
 (defmethod initialize-instance :after ((stream stream) &key)
   (with-slots (window) stream
-    (on stream :window (lambda (v) (setf window v)))))
+    (on stream :window (lambda (v) (setf window v)))
+    (on stream :close (lambda (e) (declare (ignore e)) (clear-queue stream)))))
 
 (defmethod print-object ((stream stream) print-stream)
   (with-slots (id) stream
@@ -142,11 +143,10 @@ control window size."
     (complete-transition stream frame)))
 
 (defun framep (frame)
-  (and (listp frame) (member :type frame)))
+  (and (listp frame) (member :type frame) t))
 
 (defun queueablep (frame)
-  (or (and (listp frame) (member :type frame))
-      (functionp frame)))
+  (or (framep frame) (functionp frame)))
 
 (defmethod clear-queue ((stream stream))
   (with-slots (queue) stream
@@ -222,8 +222,8 @@ performed by the client)."
 	(:return  frames*)))))
 
 (defmethod pump-queue ((stream stream) n)
-  (let ((yield-now-p nil))
-    (while-max (and (queue-populated-p stream) (not yield-now-p)) n
+  (let (yield-flag-p)
+    (while-max (and (queue-populated-p stream) (not yield-flag-p)) n
       (let ((frame (dequeue stream)))
 	(when (functionp frame)
 	  (let ((callback frame))
@@ -238,7 +238,7 @@ performed by the client)."
 			(enqueue-first-many stream (rest frames)))
 		      (enqueue-first-many stream frames))))
 	      (when skip-rest-p
-		(setf yield-now-p t)))))
+		(setf yield-flag-p t)))))
 	(when (framep frame)
 	  (send stream frame))))))
 

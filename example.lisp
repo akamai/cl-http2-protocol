@@ -84,55 +84,156 @@
 
       (receive-loop net conn))))
 
+(in-package :cl-async-ssl)
+
+(defparameter *npn-arg-fo* nil)
+(defparameter *npn-str-fo* nil)
+
+(defun tcp-ssl-server (bind-address port read-cb event-cb
+                       &key connect-cb (backlog -1) stream
+                            (ssl-method 'cl+ssl::ssl-v23-server-method)
+			    certificate key password dhparams npn)
+  "Start a TCP listener, and wrap incoming connections in an SSL handler.
+   Returns a tcp-server object, which can be closed with close-tcp-server.
+
+   If you need a self-signed cert/key to test with:
+     openssl genrsa -out pkey 2048
+     openssl req -new -key pkey -out cert.req
+     openssl x509 -req -days 3650 -in cert.req -signkey pkey -out cert"
+  ;; make sure SSL is initialized
+  (cl+ssl:ensure-initialized :method ssl-method)
+
+  ;; create the server and grab its data-pointer
+  (let* ((server (tcp-server bind-address port
+                             read-cb event-cb
+                             :connect-cb connect-cb
+                             :backlog backlog
+                             :stream stream))
+         (data-pointer (tcp-server-data-pointer server)))
+    ;; overwrite the accept callback from tcp-accept-cb -> tcp-ssl-accept-cb
+    (le:evconnlistener-set-cb (tcp-server-c server)
+                              (cffi:callback tcp-ssl-accept-cb)
+                              data-pointer)
+    ;; create a server context
+    (let* ((ssl-ctx (cl+ssl::ssl-ctx-new (funcall ssl-method)))
+           (ssl-server (change-class server 'tcp-ssl-server :ssl-ctx ssl-ctx)))
+      ;; make sure if there is a cert password, it's used
+      (cl+ssl::with-pem-password (password)
+        (cl+ssl::ssl-ctx-set-default-passwd-cb ssl-ctx (cffi:callback cl+ssl::pem-password-callback))
+
+        ;; load the cert
+        (when certificate
+          (let ((res (cffi:foreign-funcall "SSL_CTX_use_certificate_chain_file"
+                                           :pointer ssl-ctx
+                                           :string (namestring certificate)
+                                           :int)))
+            (unless (= res 1)
+              (error (format nil "Error initializing certificate: ~a."
+                             (last-ssl-error))))))
+
+        ;; load the private key
+        (when key
+          (let ((res (cffi:foreign-funcall "SSL_CTX_use_PrivateKey_file"
+                                           :pointer ssl-ctx
+                                           :string (namestring key)
+                                           :int cl+ssl::+ssl-filetype-pem+
+                                           :int)))
+            (unless (= res 1)
+              (error (format nil "Error initializing private key file: ~a."
+                             (last-ssl-error)))))))
+
+      ;; setup dhparams
+      (when dhparams
+	(cl+ssl::init-dhparams dhparams))
+
+      ;; setup next protocol negotiation
+      (let ((nps (format nil "~{~C~A~}" (mapcan (lambda (n) (list (code-char (length n)) n)) npn))))
+	(when *npn-arg-fo* (cffi:foreign-free *npn-arg-fo*))
+	(setf *npn-arg-fo* (cffi:foreign-alloc '(:struct cl+ssl::server-tlsextnextprotoctx)))
+	(when *npn-str-fo* (cffi:foreign-string-free *npn-str-fo*))
+	(setf *npn-str-fo* (cffi:foreign-string-alloc nps))
+	(cffi:with-foreign-slots ((cl+ssl::data cl+ssl::len) *npn-arg-fo* (:struct cl+ssl::server-tlsextnextprotoctx))
+	  (setf cl+ssl::data *npn-str-fo*
+		cl+ssl::len (length nps)))
+	(cffi:foreign-funcall "SSL_CTX_set_next_protos_advertised_cb"
+			      :pointer ssl-ctx
+			      :pointer (cffi:callback cl+ssl::lisp-server-next-proto-cb)
+			      :pointer *npn-arg-fo*
+			      :void))
+
+      ;; adjust the data-pointer's data a bit
+      (attach-data-to-pointer data-pointer
+                              (list :server server
+                                    :ctx ssl-ctx))
+      ssl-server)))
+
+(in-package :cl-http2-protocol-example)
+
 (defun example-server (&key (interface "0.0.0.0") (port 8080)
-			 (net nil net-arg-p) net-options (secure nil secure-arg-p)
+			 (cl-async-server 'tcp-ssl-server)
+			 cl-async-options
 			 request-handler
 			 (debug-mode *debug-mode*)
 			 (dump-bytes *dump-bytes*))
-  (assert (or (not net-arg-p) (not secure-arg-p)) (net secure) "Provide either :NET or :SECURE")
-  (ensuref net (apply #'make-instance (if secure
-					  'net-ssl
-					  #+sbcl 'net-plain-sb-bsd-sockets
-					  #-sbcl 'net-plain-usocket)
-		      net-options))
-  (assert (typep net 'net) (net) ":NET object must be of type NET")
   (let ((*debug-mode* debug-mode)
-	(*dump-bytes* dump-bytes))
-    (handler-case
-	(progn
-	  (format t "Starting server on port ~D~%" port)
-	  (net-socket-listen net interface port)
-	  (unwind-protect
-	       (loop
-		  (handler-case-unless *debug-mode*
-		      (example-server-inner net request-handler)
-		    (t (e)
-		       (report-error e)
-		       (net-socket-close net))))
-	    (net-socket-close net)
-	    (net-socket-shutdown net)))
-      (address-in-use-error ()
-	(format t "Address already in use.~%")))))
+	(*dump-bytes* dump-bytes)
+	sockets)
+    (format t "Starting server on port ~D~%" port)
+    (with-event-loop ()
+      (apply cl-async-server
+	     interface port
+	     (lambda (socket bytes)
+	       (let ((conn (socket-data socket)))
+		 (format t "read-cb firing on ~S to deal with ~D bytes~%" socket (length bytes))
+		 (example-server-read conn socket bytes)
+		 (labels ((pump () (when (pump-stream-queues conn 2) (delay #'pump))))
+		   (delay #'pump))))
+	     (lambda (event)
+	       (example-server-event event))
+	     :connect-cb
+	     (lambda (socket)
+	       (format t "New TCP connection received!~%")
+	       (setf sockets (cons socket (delete-if #'socket-closed-p sockets)))
+	       (setf (socket-data socket) (example-server-accepted-socket socket request-handler)))			  
+	     (let ((options (copy-list cl-async-options)))
+	       (unless (getf options :ssl-method)
+		 (setf (getf options :ssl-method) 'cl+ssl::ssl-tlsv1.2-method))
+	       (unless (getf options :npn)
+		 (setf (getf options :npn) *next-protos-spec*))
+	       options))
+      (add-event-loop-exit-callback
+       (lambda ()
+	 (mapc #'close-socket (delete-if #'socket-closed-p sockets)))))))
 
-(defun example-server-inner (net request-handler)
-  (net-socket-accept net)
-  (format t "New TCP connection!~%")
-  (net-socket-prepare-server net)
-  (handler-case
-      (example-server-accepted-socket net request-handler)
-    (connection-reset-error ()
-      (format t "Connection reset.~%")
-      (net-socket-close net))
-    (end-of-file ()
-      (format t "End of file.~%")
-      (net-socket-close net))))
+(defun example-server-read (conn socket bytes)
+  (handler-case-unless *debug-mode*
+      (connection<< conn bytes)
+    (t (e)
+       (report-error e)
+       (close-socket socket))))
 
-(defun example-server-accepted-socket (net request-handler)
+(defun example-server-event (ev)
+  (format t "example-server-event: ~S~%" ev)
+  (let ((socket (tcp-socket ev)))
+    (labels ((done-with-socket ()
+	       (http2::shutdown-connection (socket-data socket))
+	       (unless (socket-closed-p socket)
+		 (close-socket socket))))
+      (handler-case
+	  (error ev)
+	(tcp-error ()
+	  (delay #'done-with-socket))
+	(tcp-eof ()
+	  (delay #'done-with-socket))
+	(tcp-timeout ()
+	  (delay #'done-with-socket))))))
+
+(defun example-server-accepted-socket (socket request-handler)
   (let ((conn (make-instance 'server)))
     (on conn :frame
 	(lambda (bytes)
-	  ; (format t "transmitting frame now~%")
-	  (send-bytes net (buffer-data bytes))))
+	  (format t "about to write-socket-data for ~S~%" socket)
+	  (write-socket-data socket (buffer-data bytes))))
       
     (on conn :goaway
 	(lambda (s e m)
@@ -207,16 +308,7 @@
 			    ;; split content into multiple DATA frames
 			    (data stream (buffer-slice! content 0 5) :end-stream nil)
 			    (data stream content))))))))))
-
-    (format t "Entering receive loop~%")
-    (restart-case
-	(receive-loop net conn)
-      ;; provide a general restart that may be useful during debugging:
-      (goaway ()
-	:report "Send GOAWAY INTERNAL_ERROR."
-	(goaway conn :internal-error)
-	(net-socket-close net)))
-    (format t "Leaving receive loop~%")))
+    conn))
 
 (defmacro def-test-server (name &body body)
   (with-gensyms (rh)
