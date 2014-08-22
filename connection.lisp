@@ -125,7 +125,7 @@ stream frames are passed to appropriate stream objects."
 	    (when continuation
 	      (when (or (not (eq (getf frame :type) :continuation))
 			(not (eq (getf frame :stream) (getf (first continuation) :stream))))
-		(connection-error connection :msg "Expected CONTINUATION frame"))
+		(connection-error connection :msg "Expected CONTINUATION frame to follow frames ~S not ~S" continuation frame))
 
 	      (push frame continuation)
 	      (when (not (member :end-headers (getf frame :flags)))
@@ -373,7 +373,6 @@ connection management callbacks."
       (setf (gethash id streams) stream))))
 
 (defmethod pump-stream-queues ((connection connection) n)
-  (format t "(pump-stream-queues ~S)~%" connection)
   (with-slots (streams) connection
     (loop
        with pending = (the boolean nil)  ; will set to t if any streams have queues or dependencies left at end

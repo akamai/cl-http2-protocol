@@ -46,11 +46,13 @@
 	   #:on #:once #:emit
 	   #:stream-id #:stream-priority #:stream-window
 	   #:stream-parent #:stream-state #:stream-closed
-	   #:stream-error-type #:stream<<
+	   #:stream-error-type #:stream-servicable-p
+	   #:stream-connection #:stream<<
 	   #:ping #:goaway #:settings
 	   #:headers #:data #:promise #:reprioritize
 	   #:stream-close #:cancel #:refuse #:restrict
 	   #:nudge #:extensible #:experimental
+	   #:enqueue #:queue-populated-p #:clear-queue
 	   #:pump-stream-queues #:pump-queue))
 
 (defpackage :cl-http2-protocol-example

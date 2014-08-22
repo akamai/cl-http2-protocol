@@ -345,7 +345,7 @@ entry of the header table is always associated to the index 1."
 	 for header in headers
 	 for (k . v) = header
 	 if (string= k "cookie")
-	 do (dolist (v* (split-if (lambda (c) (or (char= c #\;) (char= c #\Space) (char= c #\Null))) v))
+	 do (dolist (v* (split-if (lambda (c) (member c '(#\; #\Space #\Null) :test #'char=)) v))
 	      (push (cons k v*) new-headers))
 	 else
 	 do (push header new-headers)
@@ -524,23 +524,15 @@ entry of the header table is always associated to the index 1."
       header)))
 
 (defmethod join-cookies ((decompressor decompressor) headers)
-  (if (loop
-	 for (k . v) on headers
-	 count (string= (car k) "cookie") into c
-	 if (= 2 c) do (return t)
-	 finally (return nil))
+  (if (let ((c 0)) (find-if (lambda (h) (if (string= h "cookie") (> (incf c) 1))) headers :key #'car))
       (loop
-	 with new-headers = nil
-	 with cookie-values = nil
 	 for header in headers
 	 for (k . v) = header
 	 if (string= k "cookie")
-	 do (push v cookie-values)
+	 collect v into cookie-values
 	 else
-	 do (push header new-headers)
-	 finally (progn
-		   (push (cons "cookie" (format nil "~{~A~^; ~}" cookie-values)) new-headers)
-		   (return (nreverse new-headers))))
+	 collect header into new-headers
+	 finally (return (nconc new-headers (list (cons "cookie" (format nil "~{~A~^; ~}" cookie-values))))))
       headers))
 
 (defmethod postprocess ((decompressor decompressor) headers)

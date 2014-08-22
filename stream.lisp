@@ -76,9 +76,13 @@
     (on stream :close (lambda (e) (declare (ignore e)) (clear-queue stream)))))
 
 (defmethod print-object ((stream stream) print-stream)
-  (with-slots (id) stream
+  (with-slots (id state) stream
     (print-unreadable-object (stream print-stream :type t :identity t)
-      (format print-stream ":ID ~D" id))))
+      (format print-stream ":ID ~D :STATE ~S" id state))))
+
+(defmethod stream-servicable-p ((stream stream))
+  (with-slots (state) stream
+    (if (member state '(:open :half-closed-remote)) t nil)))
 
 (defmethod update-priority ((stream stream) frame)
   (with-slots (priority dependency connection) stream
@@ -96,6 +100,7 @@
 
 (defmethod receive ((stream stream) frame)
   "Processes incoming HTTP 2.0 frames. The frames must be decoded upstream."
+
   (with-slots (priority dependency window id connection) stream
     (transition stream frame nil)
 
@@ -184,10 +189,11 @@ control window size."
 
 (defmethod headers ((stream stream) headers &key (end-headers t) (end-stream nil) (action :send))
   "Sends a HEADERS frame containing HTTP response headers."
+  (check-type headers cons "a list containing required minimum headers")
   (let ((frame (list :type :headers
 		     :flags `(,@(if end-headers '(:end-headers)) ,@(if end-stream '(:end-stream)))
 		     :payload headers)))
-    (case action
+    (ecase action
       (:send    (send stream frame))
       (:enqueue (enqueue stream frame))
       (:return  (list frame)))))
@@ -216,7 +222,7 @@ performed by the client)."
 	  (push (list :type :data :payload chunk) frames))))
     (push (list :type :data :flags (if end-stream '(:end-stream)) :payload payload) frames)
     (let ((frames* (nreverse frames)))
-      (case action
+      (ecase action
 	(:send    (dolist (frame frames*) (send stream frame)))
 	(:enqueue (dolist (frame frames*) (enqueue stream frame)))
 	(:return  frames*)))))
@@ -242,7 +248,7 @@ performed by the client)."
 	(when (framep frame)
 	  (send stream frame))))))
 
-(defmethod stream-close ((stream stream) &optional (error :stream-closed)) ; @ ***
+(defmethod stream-close ((stream stream) &optional (error :stream-closed))
   "Sends a RST_STREAM frame which closes current stream - this does not
 close the underlying connection."
   (send stream (list :type :rst-stream :error error)))
@@ -282,7 +288,6 @@ to performing any application processing."
 (defmethod connected ((stream stream))
   "Marks a stream as a successful CONNECT method stream where the 2xx
 success headers have been sent and the stream is ready for DATA frames."
-  (format t "(connected ~S)~%" stream)
   (change-class stream 'connect-stream))
 
 ; HTTP 2.0 Stream States

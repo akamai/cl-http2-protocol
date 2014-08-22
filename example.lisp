@@ -169,10 +169,16 @@
 
 (in-package :cl-http2-protocol-example)
 
+(defun pump-connection (conn)
+  (when (pump-stream-queues conn 2)
+    (delay (lambda () (pump-connection conn)))))
+
 (defun example-server (&key (interface "0.0.0.0") (port 8080)
 			 (cl-async-server 'tcp-ssl-server)
 			 cl-async-options
 			 request-handler
+			 entry-handler
+			 exit-handler
 			 (debug-mode *debug-mode*)
 			 (dump-bytes *dump-bytes*))
   (let ((*debug-mode* debug-mode)
@@ -180,14 +186,14 @@
 	sockets)
     (format t "Starting server on port ~D~%" port)
     (with-event-loop ()
+      (when entry-handler (as:delay entry-handler))
       (apply cl-async-server
 	     interface port
 	     (lambda (socket bytes)
 	       (let ((conn (socket-data socket)))
 		 (format t "read-cb firing on ~S to deal with ~D bytes~%" socket (length bytes))
 		 (example-server-read conn socket bytes)
-		 (labels ((pump () (when (pump-stream-queues conn 2) (delay #'pump))))
-		   (delay #'pump))))
+		 (delay (lambda () (pump-connection conn)))))
 	     (lambda (event)
 	       (example-server-event event))
 	     :connect-cb
@@ -201,9 +207,8 @@
 	       (unless (getf options :npn)
 		 (setf (getf options :npn) *next-protos-spec*))
 	       options))
-      (add-event-loop-exit-callback
-       (lambda ()
-	 (mapc #'close-socket (delete-if #'socket-closed-p sockets)))))))
+      (add-event-loop-exit-callback (lambda () (mapc #'close-socket (delete-if #'socket-closed-p sockets))))
+      (when exit-handler (add-event-loop-exit-callback exit-handler)))))
 
 (defun example-server-read (conn socket bytes)
   (handler-case-unless *debug-mode*
@@ -260,7 +265,7 @@
 	    (on stream :headers
 		(lambda (h)
 		  (setf req h)
-		  (format t "request headers: ~S~%" req)
+		  (format t "request headers associated with stream ~S:~%~S~%" stream req)
 		  (macrolet ((req-header (name) `(cdr (assoc ,name req :test #'string=))))
 		    (when (string= (req-header ":method") "CONNECT") ; END_STREAM won't be set so handle here
 		      (if request-handler
