@@ -338,57 +338,70 @@ entry of the header table is always associated to the index 1."
 
   buffer)
 
-(defmethod split-cookies ((compressor compressor) headers)
-  (if (find "cookie" headers :key #'car :test #'string=)
-      (loop
-	 with new-headers = nil
-	 for header in headers
-	 for (k . v) = header
-	 if (string= k "cookie")
-	 do (dolist (v* (split-if (lambda (c) (or (char= c #\;) (char= c #\Space) (char= c #\Null))) v))
-	      (push (cons k v*) new-headers))
-	 else
-	 do (push header new-headers)
-	 finally (return (nreverse new-headers)))
-      headers))
-
-(defmethod combine ((compress compressor) headers)
-  ; this code is longer than necessary because it optimizes speed and memory for no/few duplicates
-  ; in the case of no duplicates, there is no cons'ing and headers is simply returned with one pass
-  ; as duplicates are found some structures grow, and a second pass is necessary to cons up the structure
-  ; individual header cons's will be reused in the new structure if they are not dup's
-  (loop
-     with dups = nil   ; each entry is a list: the original index integer, followed by all values
-     with dupidx = nil ; each entry is an index integer
-     with l = (length headers)
-     for i below l
-     for current-start on headers
-     for (current-k . current-v) = (car current-start)
-     if (and (not (find i dupidx :test #'=))
-	     (not (string= current-k "set-cookie")))
-     do (loop
-	   for j from (1+ i) below l
-	   for (k . v) in (cdr current-start)
-	   when (string= k current-k)
-	   collect j into js and
-	   collect v into vs
-	   finally (when js
-		     (push (cons i (cons current-v vs)) dups)
-		     (nconc dupidx (cons i js))))
-     finally (return (if dups
-			 (loop
-			    for i below l
-			    for dup = (find i dups :key #'car :test #'=)
-			    for header in headers
-			    if dup
-			    collect (cons (car header) (format nil #.(format nil "~~{~~A~~^~C~~}" #\Null) (cdr dup)))
-			    else
-			    unless (find i dupidx :test #'=)
-			    collect header)
-			 headers))))
+(defmethod preprocess-headers (headers)
+  "Performs three corrections to header sets:
+1. Collects psuedo-headers (those that begin with a colon like :method) to the front.
+2. Combines duplicate headers (except cookie and set-cookie) with a null byte between values.
+3. Splits cookie headers by colon, space, null in order to make each one separate for compression.
+In the event that headers is not in need of changes, it is passed back and is EQ to the one passed in;
+otherwise, a fresh list is passed back, although header entries may share structure with the original."
+  (labels ((is-pseudo-header-key (key)
+	     (char= #\: (char key 0)))
+	   (sort-pseudo-headers-to-front (headers)
+	     (loop
+		for header in headers
+		if (is-pseudo-header-key (car header))
+		collect header into pseudo-headers
+		else
+		collect header into other-headers
+		finally (return (nconc pseudo-headers other-headers))))
+	   (combine-dups-except-cookies (headers)
+	     (loop
+		for header in headers
+		for (key . value) = header
+		for found = (find key new-headers :key #'car :test #'string=)
+		if (and found (not (member key '("cookie" "set-cookie") :test #'string=)))
+		do (setf (cdr found) (concatenate 'string (cdr found) #.(format nil "~C" #\Null) value))
+		else
+		collect header into new-headers
+		finally (return new-headers)))
+	   (split-cookies (headers)
+	     (loop
+		for header in headers
+		for (key . value) = header
+		if (string= key "cookie")
+		append (mapcar (lambda (v) (cons key v))
+			       (split-if (lambda (c) (member c '(#\; #\Space #\Null) :test #'char=)) value)) into cookies
+		else
+		collect header into new-headers
+		finally (return (nconc new-headers cookies)))))
+    (loop
+       with in-pseudo-headers = t
+       for (key . value) in headers
+       for i from 0
+       when (zerop need-sort)
+       count (and (or (is-pseudo-header-key key) (setf in-pseudo-headers nil))
+		  (not in-pseudo-headers))
+       into need-sort
+       when (zerop has-dups)
+       count (and (not (member key '("cookie" "set-cookie") :test #'string=))
+		  (find key headers :key #'car :test #'string= :end i))
+       into has-dups
+       when (zerop has-multi-cookie)
+       count (and (string= key "cookie")
+		  (find-if (lambda (c) (member c '(#\; #\Space #\Null) :test #'char=)) value))
+       into has-multi-cookie
+       finally (return (progn
+			 (when (plusp need-sort)
+			   (setf headers (sort-pseudo-headers-to-front headers)))
+			 (when (plusp has-dups)
+			   (setf headers (combine-dups-except-cookies headers)))
+			 (when (plusp has-multi-cookie)
+			   (setf headers (split-cookies headers)))
+			 headers)))))
 
 (defmethod preprocess ((compressor compressor) headers)
-  (split-cookies compressor (combine compressor headers)))
+  (preprocess-headers headers))
 
 (defmethod encode ((compressor compressor) headers)
   "Encodes provided list of HTTP headers."
@@ -523,19 +536,20 @@ entry of the header table is always associated to the index 1."
 
       header)))
 
-(defmethod join-cookies ((decompressor decompressor) headers)
-  (if (loop
-	 for (k . v) on headers
-	 count (string= (car k) "cookie") into c
-	 if (= 2 c) do (return t)
-	 finally (return nil))
+(defun postprocess-headers (headers)
+  "Join cookies together with a colon that are in separate headers or have null-separators.
+In the event that headers is not in need of changes, it is passed back and is EQ to the one passed in;
+otherwise, a fresh list is passed back, although header entries may share structure with the original."
+  (if (let ((c 0))
+	(find-if (lambda (h) (or (if (string= (car h) "cookie") (>= (incf c) 2))
+				 (find #\Null (cdr h) :test #'char=))) headers))
       (loop
 	 with new-headers = nil
 	 with cookie-values = nil
 	 for header in headers
-	 for (k . v) = header
-	 if (string= k "cookie")
-	 do (push v cookie-values)
+	 for (key . value) = header
+	 if (string= key "cookie")
+	 append (split-if (lambda (c) (char= c #\Null)) value) into cookie-values
 	 else
 	 do (push header new-headers)
 	 finally (progn
@@ -544,7 +558,7 @@ entry of the header table is always associated to the index 1."
       headers))
 
 (defmethod postprocess ((decompressor decompressor) headers)
-  (join-cookies decompressor headers))
+  (postprocess-headers headers))
 
 (defmethod decode ((decompressor decompressor) buf)
   "Decodes and processes header commands within provided buffer.
