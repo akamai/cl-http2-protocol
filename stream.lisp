@@ -187,7 +187,7 @@ control window size."
   (let ((frame (list :type :headers
 		     :flags `(,@(if end-headers '(:end-headers)) ,@(if end-stream '(:end-stream)))
 		     :payload headers)))
-    (case action
+    (ecase action
       (:send    (send stream frame))
       (:enqueue (enqueue stream frame))
       (:return  (list frame)))))
@@ -209,17 +209,12 @@ performed by the client)."
 
 (defmethod data ((stream stream) payload &key (end-stream t) (action :send))
   "Sends DATA frame containing response payload."
-  (let (frames)
-    (when (bufferp payload)
-      (while (> (buffer-size payload) *max-payload-size*)
-	(let ((chunk (buffer-slice! payload 0 *max-payload-size*)))
-	  (push (list :type :data :payload chunk) frames))))
-    (push (list :type :data :flags (if end-stream '(:end-stream)) :payload payload) frames)
-    (let ((frames* (nreverse frames)))
-      (case action
-	(:send    (dolist (frame frames*) (send stream frame)))
-	(:enqueue (dolist (frame frames*) (enqueue stream frame)))
-	(:return  frames*)))))
+  (let* ((frame (list :type :data :flags (if end-stream '(:end-stream)) :payload payload))
+	 (frames (maybe-downsize-frame (stream-connection stream) frame)))
+    (ecase action
+      (:send    (dolist (frame frames) (send stream frame)))
+      (:enqueue (dolist (frame frames) (enqueue stream frame)))
+      (:return  frames))))
 
 (defmethod pump-queue ((stream stream) n)
   (let ((yield-now-p nil))
@@ -240,7 +235,10 @@ performed by the client)."
 	      (when skip-rest-p
 		(setf yield-now-p t)))))
 	(when (framep frame)
-	  (send stream frame))))))
+	  (let ((frames (maybe-downsize-frame (stream-connection stream) frame)))
+	    (when (rest frames)
+	      (enqueue-first-many stream (rest frames)))
+	    (send stream (first frames))))))))
 
 (defmethod stream-close ((stream stream) &optional (error :stream-closed)) ; @ ***
   "Sends a RST_STREAM frame which closes current stream - this does not
