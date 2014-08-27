@@ -76,7 +76,8 @@
 (define-symbol-macro *byte-msb-reserved* #x7F)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defparameter *headerpack* "mBBN")
+  (defparameter *headerpack* "mBBN"
+    "Common header packing: length 24 bits, type 8 bits, flags 8 bits, stream id, 16 bits (msb reserved)")
   (defparameter *uint8* "B")
   (defparameter *uint16* "n")
   (defparameter *uint32* "N"))
@@ -248,16 +249,16 @@
 (defmethod parse ((framer framer) (buf buffer))
   "Decodes complete HTTP 2.0 frame from provided buffer. If the buffer
 does not contain enough data, no further work is performed."
+
+  ;; handle the two cases where insufficient bytes have been collected:
   (when (< (buffer-size buf) +common-header-size+)
     (return-from parse nil))
   (let ((frame (read-common-header framer buf)))
     (when (< (buffer-size buf) (+ +common-header-size+ (getf frame :length)))
       (return-from parse nil))
-
     (buffer-read buf +common-header-size+)
 
-    ; (format t "http2 frame header: ~S~%http2 frame payload: ~A~%" frame (subseq (buffer-data buf) 0 (getf frame :length)))
-
+    ;; handle the case where the entire frame appears to be available:
     (let ((payload (buffer-read buf (getf frame :length))))
 
       (case (getf frame :type)
