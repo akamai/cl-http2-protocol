@@ -2,7 +2,23 @@
 
 (in-package :cl-http2-protocol-example)
 
-; see also net.lisp which is part of the example and not strictly necessary
+(defparameter *key-pathname*         (merge-pathnames "cl-http2-protocol/" (user-homedir-pathname)))
+(defparameter *server-key-file*      (merge-pathnames "mykey.pem" *key-pathname*))
+(defparameter *server-cert-file*     (merge-pathnames "mycert.pem" *key-pathname*))
+(defparameter *server-dhparams-file* (merge-pathnames "dhparams.2048.pem" *key-pathname*))
+
+(defparameter *next-protos-spec* '("h2-13"))
+
+(defparameter *dump-bytes* t)         ; t or nil
+(defparameter *dump-bytes-stream* t)  ; t for stdout, or a stream
+(defparameter *dump-bytes-base* 10)   ; 10 for decimal, 16 for hexadecimal
+(defparameter *dump-bytes-hook* nil)  ; nil or 'vector-inspect make sense
+
+(defmacro maybe-dump-bytes (type bytes)
+  `(when *dump-bytes*
+     (let ((*print-base* *dump-bytes-base*))
+       (format *dump-bytes-stream* ,(concatenate 'string "http2 " (string-downcase type) ": ~A~%")
+	       (if *dump-bytes-hook* (funcall *dump-bytes-hook* ,bytes) ,bytes)))))
 
 (defun example-client (uri &key (net nil net-arg-p) (secure nil secure-arg-p)
 			     (debug-mode *debug-mode*)
@@ -173,6 +189,12 @@
   (when (pump-stream-queues conn 2)
     (delay (lambda () (pump-connection conn)))))
 
+(defmacro options-with-defaults (list &body body)
+  (let ((new (gensym "OPTIONS")))
+    `(let ((,new (copy-list ,list)))
+       ,@(loop for (key value) in body collect `(ensuref (getf options ,key) ,value))
+       ,new)))
+
 (defun example-server (&key (interface "0.0.0.0") (port 8080)
 			 (cl-async-server 'tcp-ssl-server)
 			 cl-async-options
@@ -189,33 +211,32 @@
       (when entry-handler (as:delay entry-handler))
       (apply cl-async-server
 	     interface port
-	     (lambda (socket bytes)
-	       (let ((conn (socket-data socket)))
-		 (format t "read-cb firing on ~S to deal with ~D bytes~%" socket (length bytes))
-		 (example-server-read conn socket bytes)
-		 (delay (lambda () (pump-connection conn)))))
-	     (lambda (event)
-	       (example-server-event event))
+	     #'example-server-read
+	     #'example-server-event
 	     :connect-cb
 	     (lambda (socket)
 	       (format t "New TCP connection received!~%")
 	       (setf sockets (cons socket (delete-if #'socket-closed-p sockets)))
-	       (setf (socket-data socket) (example-server-accepted-socket socket request-handler)))			  
-	     (let ((options (copy-list cl-async-options)))
-	       (unless (getf options :ssl-method)
-		 (setf (getf options :ssl-method) 'cl+ssl::ssl-tlsv1.2-method))
-	       (unless (getf options :npn)
-		 (setf (getf options :npn) *next-protos-spec*))
-	       options))
-      (add-event-loop-exit-callback (lambda () (mapc #'close-socket (delete-if #'socket-closed-p sockets))))
+	       (setf (socket-data socket) (example-server-accepted-socket socket request-handler)))
+	     (options-with-defaults cl-async-options
+	       (:ssl-method  'cl+ssl::ssl-tlsv1.2-method)
+	       (:npn         *next-protos-spec*)
+	       (:key         *server-key-file*)
+	       (:certificate *server-cert-file*)
+	       (:dhparams    *server-dhparams-file*)))
+      (add-event-loop-exit-callback
+       (lambda () (mapc #'close-socket (delete-if #'socket-closed-p sockets))))
       (when exit-handler (add-event-loop-exit-callback exit-handler)))))
 
-(defun example-server-read (conn socket bytes)
-  (handler-case-unless *debug-mode*
-      (connection<< conn bytes)
-    (t (e)
-       (report-error e)
-       (close-socket socket))))
+(defun example-server-read (socket bytes)
+  (maybe-dump-bytes :recv bytes)
+  (let ((conn (socket-data socket)))
+    (handler-case-unless *debug-mode*
+	(connection<< conn bytes)
+      (t (e)
+	 (report-error e)
+	 (close-socket socket)))
+    (delay (lambda () (pump-connection conn)))))
 
 (defun example-server-event (ev)
   (format t "example-server-event: ~S~%" ev)
@@ -237,7 +258,7 @@
   (let ((conn (make-instance 'server)))
     (on conn :frame
 	(lambda (bytes)
-	  (format t "about to write-socket-data for ~S~%" socket)
+	  (maybe-dump-bytes :send bytes)
 	  (write-socket-data socket (buffer-data bytes))))
       
     (on conn :goaway
