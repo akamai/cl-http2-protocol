@@ -141,12 +141,8 @@ control window size."
 
     (complete-transition stream frame)))
 
-(defun framep (frame)
-  (and (listp frame) (member :type frame)))
-
 (defun queueablep (frame)
-  (or (and (listp frame) (member :type frame))
-      (functionp frame)))
+  (or (framep frame) (functionp frame)))
 
 (defmethod clear-queue ((stream stream))
   (with-slots (queue) stream
@@ -159,7 +155,8 @@ control window size."
 
 (defmethod enqueue-many ((stream stream) (frames list))
   (dolist (frame frames)
-    (enqueue stream frame)))
+    (enqueue stream frame))
+  nil)
 
 (defmethod dequeue ((stream stream))
   (with-slots (queue) stream
@@ -172,7 +169,8 @@ control window size."
 
 (defmethod enqueue-first-many ((stream stream) (frames list))
   (dolist (frame (reverse frames))
-    (enqueue-first stream frame)))
+    (enqueue-first stream frame))
+  nil)
 
 (defmethod dequeue-back ((stream stream))
   (with-slots (queue) stream
@@ -184,6 +182,7 @@ control window size."
 
 (defmethod headers ((stream stream) headers &key (end-headers t) (end-stream nil) (action :send))
   "Sends a HEADERS frame containing HTTP response headers."
+  (check-headers-size (stream-connection stream) headers)
   (let ((frame (list :type :headers
 		     :flags `(,@(if end-headers '(:end-headers)) ,@(if end-stream '(:end-stream)))
 		     :payload headers)))

@@ -30,6 +30,7 @@
    (framer :initform (make-instance 'framer) :type framer)
    (window-limit :initarg :window-limit :type (or integer float))
    (payload-limit :reader conn-payload-limit :initarg :payload-limit :initform *max-payload-size* :type integer)
+   (headers-limit :reader conn-headers-limit :initarg :headers-limit :initform nil :type (or null integer))
    (recv-buffer :initform (make-instance 'buffer) :type buffer)
    (send-buffer :initform nil)
    (continuation :initform nil :type list)
@@ -226,10 +227,9 @@ stream frames are passed to appropriate stream objects."
 control and may be split and / or buffered based on current window size.
 All other frames are sent immediately."
   (if (eq (getf frame :type) :data)
-      (dolist (sized-frame (maybe-downsize-frame connection frame))
-	(send-data connection sized-frame))
-      ; An endpoint can end a connection at any time. In particular, an
-      ; endpoint MAY choose to treat a stream error as a connection error.
+      (send-data connection frame)
+      ;; An endpoint can end a connection at any time. In particular, an
+      ;; endpoint MAY choose to treat a stream error as a connection error.
       (if (eq (getf frame :type) :rst-stream)
 	  (when (eq (getf frame :error) :protocol-error)
 	    (goaway connection (getf frame :error)))
@@ -241,7 +241,7 @@ All other frames are sent immediately."
 Returns a list of encoded frames since a frame may be chopped up for size."
   (with-slots (framer) connection
     (when (member (getf frame :type) '(:headers :push-promise))
-      (encode-headers connection frame))
+      (list (encode-headers connection frame)))
     (mapcar (lambda (f) (generate framer f)) (maybe-downsize-frame connection frame))))
 
 (defmethod connection-frame-p ((connection connection) frame)
@@ -307,18 +307,19 @@ frame addressed to stream ID = 0."
       (send connection (list :type :settings :flags '(:ack) :payload nil)))))
 
 (defmethod connection-setting ((connection connection) (key (eql :settings-header-table-size)) value)
-  (setf (settings-limit (compressor connection)) value))
+  (with-slots (compressor) connection
+    (setf (settings-limit compressor) value)))
 
-; this will be overridden for server class
+;; this will be overridden for server class
 (defmethod connection-setting ((connection connection) (key (eql :settings-enable-push)) value)
   (declare (ignore value))
   (connection-error :msg "SETTINGS_ENABLE_PUSH received, but connection is not a server."))
 
-; A change to SETTINGS_INITIAL_WINDOW_SIZE could cause the available
-; space in a flow control window to become negative. A sender MUST
-; track the negative flow control window, and MUST NOT send new flow
-; controlled frames until it receives WINDOW_UPDATE frames that cause
-; the flow control window to become positive.
+;; A change to SETTINGS_INITIAL_WINDOW_SIZE could cause the available
+;; space in a flow control window to become negative. A sender MUST
+;; track the negative flow control window, and MUST NOT send new flow
+;; controlled frames until it receives WINDOW_UPDATE frames that cause
+;; the flow control window to become positive.
 (defmethod connection-setting ((connection connection) (key (eql :settings-initial-window-size)) value)
   (with-slots (window window-limit streams) connection
     (setf window (+ (- window window-limit) value))
@@ -333,6 +334,10 @@ frame addressed to stream ID = 0."
 (defmethod connection-setting ((connection connection) (key (eql :settings-max-frame-size)) value)
   (with-slots (payload-limit) connection
     (setf payload-limit value)))
+
+(defmethod connection-setting ((connection connection) (key (eql :settings-max-header-list-size)) value)
+  (with-slots (headers-limit) connection
+    (setf headers-limit value)))
 
 (defmethod maybe-downsize-frame ((connection connection) frame)
   (with-slots (payload-limit) connection
@@ -355,6 +360,12 @@ frame addressed to stream ID = 0."
 	    (push frame frames)
 	    (nreverse frames))
 	  (list frame)))))
+
+(defmethod check-headers-size ((connection connection) headers)
+  (with-slots (headers-limit compressor) connection
+    (when headers-limit
+      (when (> (headers-size compressor headers) headers-limit)
+	(raise :http2-headers-too-big "Header set is larger than peer's SETTINGS_MAX_HEADER_LIST_SIZE.")))))
 
 (defmethod decode-headers ((connection connection) frame)
   "Decode headers payload and update connection decompressor state.

@@ -29,9 +29,8 @@ data is buffered until the flow control window is updated.
 Buffered DATA frames are emitted in FIFO order."
   (with-slots (send-buffer window) obj
     (when frame
+      (check-type frame (satisfies framep))
       (push frame send-buffer))
-    (unless (plusp window)
-      (format t "(send-data ~A): held up due to non-positive window~%" obj))
     (drain-send-buffer obj)))
 
 (defmethod drain-send-buffer ((obj flowbuffer-include) &optional encode)
@@ -43,6 +42,7 @@ Buffered DATA frames are emitted in FIFO order."
   (with-slots (send-buffer window) obj
     (while (and (plusp window) send-buffer)
       (let ((frame (shift send-buffer)))
+	(check-type frame (satisfies framep))
 	(let ((frame-size (buffer-size (getf frame :payload)))
 	      (sent 0))
 	  (if (> frame-size window)
@@ -57,6 +57,9 @@ Buffered DATA frames are emitted in FIFO order."
 		(setf sent window))
 	      (setf sent frame-size))
 	  (when encode
-	    (setf frame (encode obj frame)))
+	    (let ((frames (encode obj frame)))
+	      (setf frame (pop frames))
+	      (dolist (frame* (nreverse frames))
+		(unshift frame* send-buffer))))
 	  (emit obj :frame frame)
 	  (decf window sent))))))

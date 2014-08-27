@@ -352,6 +352,12 @@ does not contain enough data, no further work is performed."
 
     frame))
 
+(defun framep (frame)
+  (and (listp frame)
+       (when-let (type-ptr (member :type frame))
+	 (getf *frame-types* (second type-ptr)))
+       t))
+
 (defun pack-error (e)
   (when (not (integerp e))
     (if-let (d (getf *defined-errors* e))

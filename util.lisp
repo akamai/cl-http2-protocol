@@ -126,9 +126,9 @@ B - 8-bit integer"
 		   (#\m
 		    `(24
 		      (setf ,value (coerce ,value '(unsigned-byte 24)))
-		      (append-byte (ldb (byte 8 #+big-endian  0 #+little-endian 24) ,value))
-		      (append-byte (ldb (byte 8 #+big-endian  8 #+little-endian 16) ,value))
-		      (append-byte (ldb (byte 8 #+big-endian 16 #+little-endian  8) ,value))))
+		      (append-byte (ldb (byte 8 #+big-endian  0 #+little-endian 16) ,value))
+		      (append-byte (ldb (byte 8 #+big-endian  8 #+little-endian  8) ,value))
+		      (append-byte (ldb (byte 8 #+big-endian 16 #+little-endian  0) ,value))))
 		   (#\N
 		    `(32
 		      (setf ,value (coerce ,value '(unsigned-byte 32)))
@@ -224,13 +224,13 @@ B - 8-bit integer"
 		    (setf (ldb (byte 8 #+big-endian  8 #+little-endian  0) ,value) (aref ,bytes ,position))
 		    (incf ,position)))
 		 (#\m
-		  `(32
+		  `(24
 		    (setf ,value (coerce 0 '(unsigned-byte 24)))
-		    (setf (ldb (byte 8 #+big-endian  0 #+little-endian 24) ,value) (aref ,bytes ,position))
+		    (setf (ldb (byte 8 #+big-endian  0 #+little-endian 16) ,value) (aref ,bytes ,position))
 		    (incf ,position)
-		    (setf (ldb (byte 8 #+big-endian  8 #+little-endian 16) ,value) (aref ,bytes ,position))
+		    (setf (ldb (byte 8 #+big-endian  8 #+little-endian  8) ,value) (aref ,bytes ,position))
 		    (incf ,position)
-		    (setf (ldb (byte 8 #+big-endian 16 #+little-endian  8) ,value) (aref ,bytes ,position))
+		    (setf (ldb (byte 8 #+big-endian 16 #+little-endian  0) ,value) (aref ,bytes ,position))
 		    (incf ,position)))
 		 (#\N
 		  `(32

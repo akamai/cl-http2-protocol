@@ -53,6 +53,9 @@ cannot be opened."))
 (define-condition http2-push-disabled (http2-error-recoverable) ()
   (:documentation "Raised if peer has disabled push on this connection and a push is requested."))
 
+(define-condition http2-headers-too-big (http2-error-recoverable) ()
+  (:documentation "Raised if peer has established a header list maximum size and a headers frame is requested that is larger."))
+
 (define-condition http2-inadequate-security (http2-error-recoverable) ()
   (:documentation "Raised if peer does not meet TLS requirements."))
 
