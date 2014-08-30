@@ -390,20 +390,19 @@ may be associated with the passphrase PASSWORD."
     
     (handle-external-format stream external-format)))
 
+(defun get-next-proto-negotiated-from-handle (handle)
+  (cffi:with-foreign-object (len :unsigned-int)
+    (cffi:with-foreign-object (data '(:pointer :unsigned-char))
+      (ssl-get0-next-proto-negotiated handle data len)
+      (loop
+	 with tmp-len = (cffi:mem-ref len :unsigned-int)
+	 with ptr = (cffi:mem-ref data :pointer)
+	 for i from 0 below tmp-len
+	 collect (code-char (cffi:mem-aref ptr :unsigned-char i)) into chars
+	 finally (return (coerce chars 'string))))))
+
 (defun get-next-proto-negotiated (stream)
-  (let ((handle (ssl-stream-handle stream))
-	next-proto-negotiated)
-    (cffi:with-foreign-object (len :unsigned-int)
-      (cffi:with-foreign-object (data '(:pointer :unsigned-char))
-	(ssl-get0-next-proto-negotiated handle data len)
-	(setf next-proto-negotiated
-	      (loop
-		 with tmp-len = (cffi:mem-ref len :unsigned-int)
-		 with ptr = (cffi:mem-ref data :pointer)
-		 for i from 0 below tmp-len
-		 collect (code-char (cffi:mem-aref ptr :unsigned-char i)) into chars
-		 finally (return (coerce chars 'string))))))
-    next-proto-negotiated))
+  (get-next-proto-negotiated-from-handle (ssl-stream-handle stream)))
 
 (defun initialize (&key (method 'ssl-v23-method) rand-seed)
   (setf *locks* (loop

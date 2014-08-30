@@ -41,7 +41,7 @@
 	   #:buffer-string #:buffer-ascii #:buffer-inspect
 	   #:connection #:conn-state #:conn-error #:conn-window
 	   #:conn-stream-limit #:conn-active-stream-count
-	   #:connection<< #:new-stream
+	   #:connection<< #:new-stream #:shutdown-connection
 	   #:client #:server
 	   #:on #:once #:emit
 	   #:stream-id #:stream-priority #:stream-window

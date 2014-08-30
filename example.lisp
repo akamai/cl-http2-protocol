@@ -3,59 +3,126 @@
 (in-package :cl-http2-protocol-example)
 
 (defparameter *key-pathname*         (merge-pathnames "cl-http2-protocol/" (user-homedir-pathname)))
-(defparameter *server-key-file*      (merge-pathnames "mykey.pem" *key-pathname*))
-(defparameter *server-cert-file*     (merge-pathnames "mycert.pem" *key-pathname*))
+(defparameter *server-key-file*      (merge-pathnames "mykey.pem"  	  *key-pathname*))
+(defparameter *server-cert-file*     (merge-pathnames "mycert.pem" 	  *key-pathname*))
 (defparameter *server-dhparams-file* (merge-pathnames "dhparams.2048.pem" *key-pathname*))
 
 (defparameter *next-protos-spec* '("h2-13"))
 
-(defparameter *dump-bytes* t)         ; t or nil
-(defparameter *dump-bytes-stream* t)  ; t for stdout, or a stream
-(defparameter *dump-bytes-base* 10)   ; 10 for decimal, 16 for hexadecimal
-(defparameter *dump-bytes-hook* nil)  ; nil or 'vector-inspect make sense
+(defparameter *dump-bytes*        t   "Set to T to dump bytes as they are received/sent. Set to NIL to quieten.")
+(defparameter *dump-bytes-stream* t   "Set to T for stdout, or a stream value.")
+(defparameter *dump-bytes-base*   10  "Set to 10 for decimal bytes values or 16 for hexadecimal.")
+(defparameter *dump-bytes-hook*   nil "Set to NIL to pass bytes to the printer, or 'VECTOR-INSPECT or a function.")
 
 (defmacro maybe-dump-bytes (type bytes)
+  "Provide the functionality to inspect what's coming in and out in a debugging session."
   `(when *dump-bytes*
      (let ((*print-base* *dump-bytes-base*))
        (format *dump-bytes-stream* ,(concatenate 'string "http2 " (string-downcase type) ": ~A~%")
 	       (if *dump-bytes-hook* (funcall *dump-bytes-hook* ,bytes) ,bytes)))))
 
-(defun example-client (uri &key (net nil net-arg-p) (secure nil secure-arg-p)
-			     (debug-mode *debug-mode*)
-			     (dump-bytes *dump-bytes*))
-  (assert (or (not net-arg-p) (not secure-arg-p)) (net secure) "Provide either :NET or :SECURE")
-  (when (not (uri-p uri))
-    (setf uri (parse-uri uri)))
-  (ensuref net (make-instance (if (or secure (eq (uri-scheme uri) :https))
-				  'net-ssl
-				  #+sbcl 'net-plain-sb-bsd-sockets
-				  #-sbcl 'net-plain-usocket)))
-  (assert (typep net 'net) (net) ":NET object must be of type NET")
-  (let ((*debug-mode* debug-mode)
-	(*dump-bytes* dump-bytes))
-    (handler-case
-	(example-client-inner net uri)
-      (connection-refused-error ()
-	(format t "Connection refused: ~A~%" uri)))))
+(defun socket-close-if-open (socket)
+  "Close the SOCKET provided if non-NIL and SOCKET-CLOSED-P returns NIL."
+  (when socket
+    (unless (socket-closed-p socket)
+      (close-socket socket))))
 
-(defun example-client-inner (net uri)
-  (format t "About to connect socket to ~A port ~A...~%"
-	  (uri-host uri) (or (uri-port uri) 443))
-  (net-socket-connect net (uri-host uri) (or (uri-port uri) (if (eq (uri-scheme uri) :https) 443 80)))
-  (multiple-value-bind (address port) (net-socket-peer net)
-    ;; the usocket forms here are generic enough to work on addresses from the other libraries too
-    (format t "Connected to ~A:~A!~%" (usocket:hbo-to-dotted-quad (usocket:ip-from-octet-buffer address)) port))
-  (unwind-protect
-       (progn
-	 (net-socket-prepare-client net)
-	 (example-client-connected-socket net uri))
-    (net-socket-close net)))
+(defun example-client (&key uri proxy-uri
+			 (cl-async-connect 'tcp-ssl-connect)
+			 cl-async-options
+			 request-generator
+			 entry-handler
+			 exit-handler
+			 (debug-mode *debug-mode*)
+			 (dump-bytes *dump-bytes*))
+  "Exercise HTTP/2 to fetch a URI."
+  (check-type uri (or string puri:uri))
+  (when (not (uri-p uri)) (setf uri (parse-uri uri)))
+  (check-type (uri-scheme uri) (member :http :https))
+  (check-type proxy-uri (or null string puri:uri))
+  (when (and proxy-uri (not (uri-p proxy-uri))) (setf proxy-uri (parse-uri proxy-uri)))
+  (when proxy-uri
+    (check-type (uri-scheme proxy-uri) (member :http :https)))
+  (let* ((connect-uri (or proxy-uri uri))
+	 (connect-host (uri-host connect-uri))
+	 (connect-port (or (uri-port connect-uri) (if (eq (uri-scheme connect-uri) :https) 443 80)))
+	 (*debug-mode* debug-mode)
+	 (*dump-bytes* dump-bytes)
+	 socket)
+    (format t "About to connect socket to ~A port ~A...~%" connect-host connect-port)
+    (cl+ssl:ensure-initialized :method 'cl+ssl::ssl-tlsv1.2-method)
+    (with-event-loop ()
+      (when entry-handler (as:delay entry-handler))
+      (let ((ssl-ctx (cl-async-ssl::init-ssl-client-context cl+ssl::*ssl-global-context*)))
+	(let ((npn-cleanup (cl-async-ssl::init-ssl-npn ssl-ctx *next-protos-spec*)))
+	  (add-event-loop-exit-callback npn-cleanup))
+	(apply cl-async-connect
+	       connect-host connect-port
+	       #'read-handler
+	       #'event-handler
+	       :ssl-ctx ssl-ctx
+	       :connect-cb
+	       (lambda (new-socket)
+		 (setf socket new-socket)
+		 (format t "Connected (~A)!~%" (verify-ssl socket ssl-ctx))
+		 (setf (socket-data socket) (example-client-connected-socket socket uri request-generator)))
+	       cl-async-options))
+      (add-event-loop-exit-callback (lambda () (socket-close-if-open socket)))
+      (when exit-handler (add-event-loop-exit-callback exit-handler)))
+    nil))
 
-(defun example-client-connected-socket (net uri)
+(defun verify-ssl (socket ssl-ctx)
+  "Compare the negotiated SSL NPN string to the list of acceptable protocols."
+  (let ((npn (cl+ssl::get-next-proto-negotiated-from-handle ssl-ctx)))
+    (unless (member npn *next-protos-spec*)
+      (wrong-protocol socket npn *next-protos-spec*))
+    npn))
+
+(defun wrong-protocol (socket protocol good-protocols)
+  "Signal that the wrong protocol has been negotiated so the connection cannot be used."
+  (with-simple-restart (try-anyway "Try HTTP/2 anyway")
+    (error 'http2-not-started
+	   :other-protocol protocol
+	   :format-control "Protocol ~S negotiated instead of one of ~S on ~S."
+	   :format-arguments (list protocol good-protocols socket))))
+
+(defun read-handler (socket bytes)
+  "Handle incoming bytes."
+  (maybe-dump-bytes :recv bytes)
+  (let ((conn (socket-data socket)))
+    (handler-case-unless *debug-mode*
+	(connection<< conn bytes)
+      (t (e)
+	 (report-error e)
+	 (close-socket socket)))
+    (delay (lambda () (pump-connection conn)))))
+
+(defun event-handler (event)
+  "Handle a socket event."
+  (let* ((socket (tcp-socket event))
+	 (conn (socket-data socket)))
+    (flet ((done-with-socket ()
+	     (when conn
+	       (shutdown-connection conn))
+	     (socket-close-if-open socket)))
+      (handler-case
+	  (error event)
+	(tcp-error ()
+	  (format t "TCP Error~%")
+	  (done-with-socket))
+	(tcp-eof ()
+	  (format t "TCP EOF~%")
+	  (done-with-socket))
+	(tcp-timeout ()
+	  (format t "TCP Timeout~%")
+	  (done-with-socket))))))
+
+(defun example-client-connected-socket (socket uri request-generator)
   (let ((conn (make-instance 'client)))
     (on conn :frame
 	(lambda (bytes)
-	  (send-bytes net (buffer-data bytes))))
+	  (maybe-dump-bytes :send (buffer-data bytes))
+	  (write-socket-data socket (buffer-data bytes))))
     
     (let ((stream (new-stream conn)))
 
@@ -73,7 +140,7 @@
 	    (if e
 		(format t "stream closed, error: ~A~%" e)
 		(format t "stream closed~%"))
-	    (error 'end-of-file :stream (net-socket net))))  ; normal behavior to throw EOF
+	    (close-socket socket)))
 
       (on stream :half-close
 	  (lambda ()
@@ -87,23 +154,120 @@
 	  (lambda (d)
 	    (format t "response data chunk: <<~A>>~%" (buffer-string (getf d :payload)))))
 
-      (let ((head `((":scheme" . ,(string-downcase (string (uri-scheme uri))))
-		    (":method" . "GET")
-		    (":authority" . ,(if (= (or (uri-port uri) 80) 80)
-					 (uri-host uri)
-					 (format nil "~A:~A" (uri-host uri) (or (uri-port uri) 80))))
-		    (":path"   . ,(or (uri-path uri) "/"))
-		    ("accept"  . "*/*")
-		    ("user-agent" . "HTTP/2 Common Lisp Test Agent"))))
-	(format t "Sending HTTP 2.0 request~%~S~%" head)
-	(headers stream head :end-headers t :end-stream t))
+      (delay
+       (if request-generator
+	   (lambda ()
+	     (funcall request-generator stream uri))
+	   (lambda ()
+	     (let* ((scheme-str (string-downcase (string (uri-scheme uri))))
+		    (default-port (if (eq (uri-scheme uri) :https) 443 80))
+		    (port (or (uri-port uri) default-port))
+		    (authority-str (format nil "~A~@[:~A~]"
+					   (uri-host uri)
+					   (if (= port default-port) nil port)))
+		    (path-str (or (uri-path uri) "/"))
+		    (head `((":scheme"    . ,scheme-str)
+			    (":method"    . "GET")
+			    (":authority" . ,authority-str)
+			    (":path"      . ,path-str)
+			    ("accept"     . "*/*")
+			    ("user-agent" . "cl-http2-protocol HTTP/2 Common Lisp Library Test Agent"))))
+	       (with-simple-restart (abort-request "Abort the HTTP/2 request")
+		 (format t "Sending HTTP/2 request~%~S~%" head)
+		 (headers stream head :end-headers t :end-stream t))))))
+      conn)))
 
-      (receive-loop net conn))))
+(in-package :cl-async)
+
+;; override to fix a bug with connect-cb WHEN statement handling (should go upstream)
+(define-c-callback tcp-event-cb :void ((bev :pointer) (events :short) (data-pointer :pointer))
+  "Called whenever anything happens on a TCP socket. Ties into the anonymous
+   callback system to track failures/disconnects."
+  (let* ((event nil)
+         (dns-base (deref-data-from-pointer data-pointer))
+         (bev-data (deref-data-from-pointer bev))
+         (socket (getf bev-data :socket))
+         (callbacks (get-callbacks data-pointer))
+         (event-cb (getf callbacks :event-cb))
+         (connect-cb (getf callbacks :connect-cb)))
+    (check-type socket cl-async:socket)
+    (catch-app-errors event-cb
+      (unwind-protect
+	   ;; if we just connected and we have a connect-cb, call it (only for
+	   ;; outgoing connections though, since incoming are handled in the
+	   ;; accept-cb)
+	   (when (and connect-cb
+		      (plusp (logand events le:+bev-event-connected+))
+		      (let ((dir (socket-direction socket)))
+			(or (eq dir 'out) (string= (symbol-name dir) "OUT"))))
+	     (funcall connect-cb socket))
+        ;; process any errors we received
+        (cond
+          ((< 0 (logand events (logior le:+bev-event-error+
+                                       le:+bev-event-timeout+)))
+           (multiple-value-bind (errcode errstr) (get-last-tcp-err)
+             (let ((dns-err (le:bufferevent-socket-get-dns-error bev)))
+               (cond
+                 ;; DNS error
+                 ((and (< 0 (logand events le:+bev-event-error+))
+                       (not (zerop dns-err)))
+                  (setf event (make-instance 'dns-error
+                                             :code dns-err
+                                             :msg (le:evutil-gai-strerror dns-err)))
+                  (release-dns-base))
+
+                 ;; socket timeout
+                 ((< 0 (logand events le:+bev-event-timeout+))
+                  (setf event (make-instance 'tcp-timeout :socket socket :code -1 :msg "Socket timed out")))
+
+                 ;; connection reset by peer
+                 ((or (eq errcode 104)
+                      (< 0 (logand events le:+bev-event-eof+)))
+                  (setf event (make-instance 'tcp-eof :socket socket)))
+
+                 ;; since we don't know what the error was, just spawn a general
+                 ;; error.
+                 ((< 0 errcode)
+                  (setf event (make-instance 'tcp-error :socket socket :code errcode :msg errstr)))
+                 ;; libevent signaled an error, but nothing actually happened
+                 ;; (that we know of anyway). ignore...
+					;(t
+					; (setf event (make-instance 'tcp-error :socket socket :code events :msg (format nil "Unkonwn error (~a): ~a" events errcode))))
+                 ))))
+          ;; peer closed connection.
+          ((< 0 (logand events le:+bev-event-eof+))
+           (setf event (make-instance 'tcp-eof :socket socket)))
+          ((and dns-base
+                (< 0 (logand events le:+bev-event-connected+))         
+                (not (cffi:null-pointer-p dns-base)))
+           (release-dns-base)))
+        (when event
+          (unwind-protect
+	       (when event-cb (run-event-cb event-cb event))
+            ;; if the app closed the socket in the event cb (perfectly fine),
+            ;; make sure we don't trigger an error trying to close it again.
+            (handler-case (close-socket socket)
+              (socket-closed () nil))))))))
 
 (in-package :cl-async-ssl)
 
-(defparameter *npn-arg-fo* nil)
-(defparameter *npn-str-fo* nil)
+(defun init-ssl-npn (ssl-ctx npn)
+  "Setup NPN (next protocol negotiation) on an SSL context.
+Returns a cleanup closure to be called upon disconnect."
+  (let* ((spec-str (format nil "~{~C~A~}" (loop for p in npn collect (code-char (length p)) collect p)))
+	 (npn-arg-fo (cffi:foreign-alloc '(:struct cl+ssl::server-tlsextnextprotoctx)))
+	 (npn-str-fo (cffi:foreign-string-alloc spec-str)))
+    (cffi:with-foreign-slots ((cl+ssl::data cl+ssl::len) npn-arg-fo (:struct cl+ssl::server-tlsextnextprotoctx))
+      (setf cl+ssl::data npn-str-fo
+	    cl+ssl::len (length spec-str)))
+    (cffi:foreign-funcall "SSL_CTX_set_next_protos_advertised_cb"
+			  :pointer ssl-ctx
+			  :pointer (cffi:callback cl+ssl::lisp-server-next-proto-cb)
+			  :pointer npn-arg-fo
+			  :void)
+    (lambda ()
+      (cffi:foreign-free npn-arg-fo)
+      (cffi:foreign-string-free npn-str-fo))))
 
 (defun tcp-ssl-server (bind-address port read-cb event-cb
                        &key connect-cb (backlog -1) stream
@@ -162,20 +326,6 @@
       (when dhparams
 	(cl+ssl::init-dhparams dhparams))
 
-      ;; setup next protocol negotiation
-      (let ((nps (format nil "~{~C~A~}" (mapcan (lambda (n) (list (code-char (length n)) n)) npn))))
-	(when *npn-arg-fo* (cffi:foreign-free *npn-arg-fo*))
-	(setf *npn-arg-fo* (cffi:foreign-alloc '(:struct cl+ssl::server-tlsextnextprotoctx)))
-	(when *npn-str-fo* (cffi:foreign-string-free *npn-str-fo*))
-	(setf *npn-str-fo* (cffi:foreign-string-alloc nps))
-	(cffi:with-foreign-slots ((cl+ssl::data cl+ssl::len) *npn-arg-fo* (:struct cl+ssl::server-tlsextnextprotoctx))
-	  (setf cl+ssl::data *npn-str-fo*
-		cl+ssl::len (length nps)))
-	(cffi:foreign-funcall "SSL_CTX_set_next_protos_advertised_cb"
-			      :pointer ssl-ctx
-			      :pointer (cffi:callback cl+ssl::lisp-server-next-proto-cb)
-			      :pointer *npn-arg-fo*
-			      :void))
 
       ;; adjust the data-pointer's data a bit
       (attach-data-to-pointer data-pointer
@@ -192,7 +342,7 @@
 (defmacro options-with-defaults (list &body body)
   (let ((new (gensym "OPTIONS")))
     `(let ((,new (copy-list ,list)))
-       ,@(loop for (key value) in body collect `(ensuref (getf options ,key) ,value))
+       ,@(loop for (key value) in body collect `(ensuref (getf ,new ,key) ,value))
        ,new)))
 
 (defun example-server (&key (interface "0.0.0.0") (port 8080)
@@ -211,8 +361,8 @@
       (when entry-handler (as:delay entry-handler))
       (apply cl-async-server
 	     interface port
-	     #'example-server-read
-	     #'example-server-event
+	     #'read-handler
+	     #'event-handler
 	     :connect-cb
 	     (lambda (socket)
 	       (format t "New TCP connection received!~%")
@@ -224,41 +374,14 @@
 	       (:key         *server-key-file*)
 	       (:certificate *server-cert-file*)
 	       (:dhparams    *server-dhparams-file*)))
-      (add-event-loop-exit-callback
-       (lambda () (mapc #'close-socket (delete-if #'socket-closed-p sockets))))
+      (add-event-loop-exit-callback (lambda () (mapc #'close-socket-if-open sockets)))
       (when exit-handler (add-event-loop-exit-callback exit-handler)))))
-
-(defun example-server-read (socket bytes)
-  (maybe-dump-bytes :recv bytes)
-  (let ((conn (socket-data socket)))
-    (handler-case-unless *debug-mode*
-	(connection<< conn bytes)
-      (t (e)
-	 (report-error e)
-	 (close-socket socket)))
-    (delay (lambda () (pump-connection conn)))))
-
-(defun example-server-event (ev)
-  (format t "example-server-event: ~S~%" ev)
-  (let ((socket (tcp-socket ev)))
-    (labels ((done-with-socket ()
-	       (http2::shutdown-connection (socket-data socket))
-	       (unless (socket-closed-p socket)
-		 (close-socket socket))))
-      (handler-case
-	  (error ev)
-	(tcp-error ()
-	  (delay #'done-with-socket))
-	(tcp-eof ()
-	  (delay #'done-with-socket))
-	(tcp-timeout ()
-	  (delay #'done-with-socket))))))
 
 (defun example-server-accepted-socket (socket request-handler)
   (let ((conn (make-instance 'server)))
     (on conn :frame
 	(lambda (bytes)
-	  (maybe-dump-bytes :send bytes)
+	  (maybe-dump-bytes :send (buffer-data bytes))
 	  (write-socket-data socket (buffer-data bytes))))
       
     (on conn :goaway
@@ -317,7 +440,17 @@
 			    (switch (method :test #'string=)
 			      ("GET"
 			       (format t "Received GET request~%")
-			       (setf content (buffer-simple "Hello HTTP 2.0! GET request")))
+			       (let ((path (req-header ":path")))
+				 (setf content
+				       (buffer-simple
+					(switch (path :test #'string=)
+					  ("/"
+					   "Hello HTTP 2.0! GET request~%")
+					  ("/status"
+					   (let ((file (format nil "/tmp/dels~D" (random 1000000000))))
+					     (format nil "Event Loop Status~%~%~A~%" (as:dump-event-loop-status file))))
+					  (otherwise
+					   (format nil "Received GET request for path: ~S~%" path)))))))
 			      ("POST"
 			       (let ((post-str (buffer-string buffer)))
 				 (format t "Received POST request, payload: ~A~%" post-str)
