@@ -1,69 +1,7 @@
 ; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
-; We have to make some redefinitions in CL+SSL to get support for:
-;
-; (a) Reading a partial sequence, which we need for HTTP/2.0 binary frames.
-;     To follow the ported model, a function is used to read network bytes
-;     that is blocking for one byte and non-blocking for any remaining
-;     bytes that may be available at that time. This likely results in the
-;     fewest reads to the network system as multiple frames at once can be
-;     slurped in and added to the receive buffer.
-;
-;     Background reading:
-;     https://groups.google.com/forum/#!topic/comp.lang.lisp/qYA6daIGCzk
-;     http://www.nhplace.com/kent/CL/Issues/stream-definition-by-user.html
-;
-;     Basically, while reading a variable number of octets from the
-;     network is something you can do in almost all modern CL
-;     implementations, the Gray Streams specification to which CL+SSL
-;     adheres was closer to the traditional CL STREAM specification
-;     which didn't conceive a way for that to happen. So wrapping a
-;     socket in CL+SSL takes you a step backwards in that regard. But
-;     OpenSSL supports it, so we just add wrapped support.
-;
-;     HTTP/2.0 does precede each frame with a payload size, so it would be
-;     possible to read that, and then read the remainder of the frame. A
-;     change could be made to read in 8 bytes, call CONNECTION<< and in
-;     (DEFMETHOD PARSE (FRAMER ...)) to return the number of
-;     further bytes needed for a frame to be complete instead of nil, which
-;     could bubble back to the implementation and could be used to call
-;     another read with the target length.
-;
-;     However those changes wouldn't help with the next issue:
-;
-; (b) Next Protocol Negotiation support, which we need for HTTP/2.0.
-;     HTTP/2.0 uses TLS, and annouces itself via NPN.
-;     (we'll also need ALPN in the future)
-;
-
+;; Add & override some functions in CL+SSL
 (in-package :cl+ssl)
-
-; a method based on cl+ssl:read-sequence that permits non-blocking
-(defmethod stream-read-partial-sequence ((stream ssl-stream) seq start end &key)
-  (when (and (< start end) (ssl-stream-peeked-byte stream))
-    (setf (elt seq start) (ssl-stream-peeked-byte stream))
-    (setf (ssl-stream-peeked-byte stream) nil)
-    (incf start))
-  (let ((buf (ssl-stream-input-buffer stream)))
-    (let ((length (min (- end start) (buffer-length buf))))
-      (when (plusp length)
-	(handler-case
-	    (with-pointer-to-vector-data (ptr buf)
-	      (let ((read-bytes
-		     (ensure-ssl-funcall stream
-					 (ssl-stream-handle stream)
-					 #'ssl-read
-					 (ssl-stream-handle stream)
-					 ptr
-					 length)))
-		(s/b-replace seq buf :start1 start :end1 (+ start read-bytes))
-		(incf start read-bytes)))
-	  (ssl-error-zero-return () ;SSL_read returns 0 on end-of-file
-	    (return-from stream-read-partial-sequence nil))
-	  (t (e)
-	    (error e)))))
-    ;; fixme: kein out-of-file wenn (zerop start)?
-    start))
 
 (cffi:defcfun ("TLSv1_2_client_method" ssl-TLSv1.2-client-method)
     ssl-method)
@@ -191,6 +129,7 @@
     ((s ssl-pointer) (data* (:pointer :pointer)) (len* (:pointer :unsigned-int))
      (arg (:pointer (:struct server-tlsextnextprotoctx))))
   (declare (ignore s))
+  ;; (format t "inside lisp-server-next-proto-cb~%")
   (let (tmp-data tmp-len)
     (cffi:with-foreign-slots ((data len) arg (:struct server-tlsextnextprotoctx))
       (setf tmp-data data
@@ -204,7 +143,7 @@
      (out (:pointer (:pointer :unsigned-char))) (outlen (:pointer :unsigned-char))
      (in (:pointer :unsigned-char)) (inlen :unsigned-int) (arg :pointer))
   (declare (ignore s))
-  (format t "Inside lisp-client-next-proto-cb~%")
+  ;; (format t "inside lisp-client-next-proto-cb~%")
   (cffi:with-foreign-slots ((data len status) arg (:struct client-tlsextnextprotoctx))
     (cffi:with-foreign-string (data* data)
       (setf status (ssl-select-next-proto out outlen in inlen data* len))))
@@ -261,7 +200,7 @@
      (ad (:pointer :int))
      (arg :pointer))
   (declare (ignore ad))
-  (format t "lisp-ssl-servername-cb~%")
+  ;; (format t "lisp-ssl-servername-cb~%")
   (cffi:with-foreign-slots ((ack) arg (:struct tlsextctx))
     (let ((hn (ssl-get-servername s +TLSEXT_NAMETYPE_host_name+)))
       (if (/= (ssl-get-servername-type s) -1)
@@ -293,102 +232,8 @@
      (keylength :int))
   (declare (ignore ssl is-export))
   (if (= keylength 2048)
-      *dh2048*  ; set by init-dhparams called by make-ssl-server-stream
+      *dh2048*
       (cffi:null-pointer)))
-
-(defun pack-next-protos-spec (next-protos-spec)
-  "Convert a list of NPN protocol names into a single concatenated string of length-prefixed names."
-  (with-output-to-string (s)
-    (dolist (p next-protos-spec)
-      (assert (and (stringp p) (plusp (length p)) p "Entry in NPN list must be a string with 1+ characters."))
-      (princ (code-char (length p)) s)
-      (princ p s))))
-
-; add NPN support
-(defun make-ssl-client-stream
-    (socket &key certificate key password (method 'ssl-tlsv1.2-method) external-format
-     close-callback (unwrap-stream-p t) servername next-protos-spec)
-  "Returns an SSL stream for the client socket descriptor SOCKET.
-CERTIFICATE is the path to a file containing the PEM-encoded certificate for
- your client. KEY is the path to the PEM-encoded key for the client, which
-may be associated with the passphrase PASSWORD."
-  (format t "make-ssl-client-stream overridden~%")
-  (ensure-initialized :method method)
-  (let ((stream (make-instance 'ssl-stream
-			       :socket socket
-			       :close-callback close-callback))
-        (handle (ssl-new *ssl-global-context*)))
-    (setf socket (install-handle-and-bio stream handle socket unwrap-stream-p))
-    (ssl-set-connect-state handle)
-    (with-pem-password (password)
-      (install-key-and-cert handle key certificate))
-
-    (let ((nps (pack-next-protos-spec next-protos-spec)))
-      (cffi:with-foreign-object (arg '(:struct client-tlsextnextprotoctx))
-	(cffi:with-foreign-slots ((data len) arg (:struct client-tlsextnextprotoctx))
-	  (cffi:with-foreign-string (nps* nps)
-	    (setf data nps*
-		  len (length nps))
-	    (ssl-ctx-set-next-proto-select-cb *ssl-global-context*
-					      (cffi:callback lisp-client-next-proto-cb)
-					      arg)
-
-	    (if servername
-		(cffi:with-foreign-object (sni '(:struct tlsextctx))
-		  (cffi:with-foreign-slots ((biodebug) sni (:struct tlsextctx))
-		    (setf biodebug (cffi:null-pointer))
-		    (ssl-ctx-set-tlsext-servername-callback *ssl-global-context*
-							    (cffi:callback lisp-ssl-servername-cb))
-		    (ssl-ctx-set-tlsext-servername-arg *ssl-global-context*
-						       sni)
-		    (cffi:with-foreign-string (servername* servername)
-		      (ssl-set-tlsext-host-name handle servername*)
-		      (ensure-ssl-funcall stream handle #'ssl-connect handle))))
-		(ensure-ssl-funcall stream handle #'ssl-connect handle))))))
-
-    (when (ssl-check-verify-p)
-      (ssl-stream-check-verify stream))
-    (handle-external-format stream external-format)))
-
-; add NPN support
-(defun make-ssl-server-stream
-    (socket &key certificate key dhparams password (method 'ssl-v23-method) external-format
-     close-callback (unwrap-stream-p t)
-     (cipher-list *default-cipher-list*)
-     next-protos-spec)
-  "Returns an SSL stream for the server socket descriptor SOCKET.
-CERTIFICATE is the path to a file containing the PEM-encoded certificate for
- your server. KEY is the path to the PEM-encoded key for the server, which
-may be associated with the passphrase PASSWORD."
-  (ensure-initialized :method method)
-  (let ((stream (make-instance 'ssl-server-stream
-		 :socket socket
-		 :close-callback close-callback
-		 :certificate certificate
-		 :key key))
-        (handle (ssl-new *ssl-global-context*)))
-
-    (setf socket (install-handle-and-bio stream handle socket unwrap-stream-p))
-    (ssl-set-accept-state handle)
-    (when (zerop (ssl-set-cipher-list handle cipher-list))
-      (error 'ssl-error-initialize :reason "Can't set SSL cipher list"))
-    (with-pem-password (password)
-      (install-key-and-cert handle key certificate))
-    (when dhparams
-      (init-dhparams dhparams))
-
-    (let ((nps (pack-next-protos-spec next-protos-spec)))
-      (cffi:with-foreign-object (arg '(:struct server-tlsextnextprotoctx))
-	(cffi:with-foreign-slots ((data len) arg (:struct server-tlsextnextprotoctx))
-	  (cffi:with-foreign-string (nps* nps)
-	    (setf data nps*
-		  len (length nps))
-	    (ssl-ctx-set-next-protos-advertised-cb *ssl-global-context*
-						   (cffi:callback lisp-server-next-proto-cb)
-						   arg)
-	    (ensure-ssl-funcall stream handle #'ssl-accept handle)))))
-    
-    (handle-external-format stream external-format)))
 
 (defun get-next-proto-negotiated-from-handle (handle)
   (cffi:with-foreign-object (len :unsigned-int)

@@ -37,4 +37,6 @@ For other implementations, see: https://github.com/http2/http2-spec/wiki/Impleme
 	       (:file "client" :depends-on ("util" "connection" "compressor" "stream"))
 	       (:file "server" :depends-on ("util" "error" "connection" "compressor" "stream"))
 	       (:file "ssl" :depends-on ("util"))
-	       (:file "example" :depends-on ("util" "ssl" "client" "server"))))
+	       (:file "tcp" :depends-on ("util"))
+	       (:file "tcp-ssl" :depends-on ("util"))
+	       (:file "example" :depends-on ("util" "ssl" "tcp" "tcp-ssl" "client" "server"))))
