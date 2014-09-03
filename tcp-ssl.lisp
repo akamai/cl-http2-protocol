@@ -111,6 +111,10 @@ Returns a cleanup closure to be called upon disconnect."
       (when dhparams
 	(cl+ssl::init-dhparams dhparams))
 
+      ;; setup DH
+      (cl+ssl::ssl-ctx-set-tmp-dh-callback ssl-ctx (cffi:callback cl+ssl::lisp-tmp-dh-callback))
+      (cl+ssl::ssl-ctx-set-tmp-ecdh ssl-ctx (cl+ssl::ec-key-new-by-curve-name cl+ssl::+NID_X9_62_prime256v1+))
+
       ;; setup next protocol negotiation
       (when npn
 	(let ((npn-cleanup (init-ssl-npn :server ssl-ctx npn)))

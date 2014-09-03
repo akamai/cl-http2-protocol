@@ -2,15 +2,12 @@
 
 (in-package :cl-http2-protocol)
 
-(defparameter *payload-size-bug-offset* 0
-  "Leave 0 for dealing with correct implementations.")
-
-(defparameter *max-payload-size* (- (1- (expt 2 14)) *payload-size-bug-offset*)
+(defparameter *max-payload-size* (expt 2 14)
   "Maximum frame payload size (16383 bytes).")
 
-(defparameter *common-header-size* 8)
+(defconstant +common-header-size+ 9)
 
-(defparameter *max-frame-size* (+ *max-payload-size* *common-header-size*)
+(defparameter *max-frame-size* (+ *max-payload-size* +common-header-size+)
   "Maximum frame size.")
 
 (defparameter *max-stream-id* #x7FFFFFFF
@@ -34,10 +31,8 @@
   "HTTP 2.0 frame type mapping as defined by the spec")
 
 (defparameter *frame-flags* '(:data          (:end-stream          0
-					      :end-segment         1
 					      :padded              4)
 			      :headers       (:end-stream          0
-					      :end-segment         1
 					      :end-headers         2
 					      :padded              4
 					      :priority            5)
@@ -56,7 +51,9 @@
 (defparameter *defined-settings* '(:settings-header-table-size      1
 				   :settings-enable-push            2
 				   :settings-max-concurrent-streams 3
-				   :settings-initial-window-size    4)
+				   :settings-initial-window-size    4
+				   :settings-max-frame-size         5
+				   :settings-max-header-list-size   6)
   "Default settings as defined by the spec")
 
 (defparameter *defined-errors* '(:no-error            0
@@ -79,7 +76,8 @@
 (define-symbol-macro *byte-msb-reserved* #x7F)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defparameter *headerpack* "nBBN")
+  (defparameter *headerpack* "mBBN"
+    "Common header packing: length 24 bits, type 8 bits, flags 8 bits, stream id, 16 bits (msb reserved)")
   (defparameter *uint8* "B")
   (defparameter *uint16* "n")
   (defparameter *uint32* "N"))
@@ -88,7 +86,7 @@
   (:documentation "Performs encoding, decoding, and validation of binary HTTP 2.0 frames."))
 
 (defmethod common-header ((framer framer) frame)
-  "Generates common 8-byte frame header."
+  "Generates common 9-byte frame header."
 
   (when (not (getf *frame-types* (getf frame :type)))
     (raise :http2-compression-error "Invalid frame type (~A)" (getf frame :type)))
@@ -133,11 +131,12 @@
       (pack *headerpack* (list frame-length frame-type-code frame-flags-combined frame-stream-id)))))
 
 (defmethod read-common-header ((framer framer) (buf buffer))
-  "Decodes common 8-byte header."
+  "Decodes common 9-byte header."
   (let (frame)
     (destructuring-bind (flength type flags stream)
-	(unpack *headerpack* (buffer-data (buffer-slice buf 0 *common-header-size*)))
-      (setf (getf frame :length) (logand flength *uint32-2msb-reserved*))
+	(unpack *headerpack* (buffer-data (buffer-slice buf 0 +common-header-size+)))
+
+      (setf (getf frame :length) flength)
 
       (setf (getf frame :type)
 	    (loop
@@ -158,7 +157,7 @@
 
 (defmethod generate ((framer framer) frame)
   "Generates encoded HTTP 2.0 frame."
-  (let ((bytes (make-instance 'buffer :data (make-data-vector *common-header-size*)))
+  (let ((bytes (make-instance 'buffer :data (make-data-vector +common-header-size+)))
 	(length 0))
 
     (ensuref (getf frame :flags) nil)
@@ -250,17 +249,16 @@
 (defmethod parse ((framer framer) (buf buffer))
   "Decodes complete HTTP 2.0 frame from provided buffer. If the buffer
 does not contain enough data, no further work is performed."
-  (when (< (buffer-size buf) 8)
+
+  ;; handle the two cases where insufficient bytes have been collected:
+  (when (< (buffer-size buf) +common-header-size+)
     (return-from parse nil))
   (let ((frame (read-common-header framer buf)))
-    (when (< (buffer-size buf) (+ 8 (getf frame :length)))
+    (when (< (buffer-size buf) (+ +common-header-size+ (getf frame :length)))
       (return-from parse nil))
+    (buffer-read buf +common-header-size+)
 
-    (buffer-read buf 8)
-
-    ; (format t "http2 frame header: ~S~%http2 frame payload: ~A~%" frame (subseq (buffer-data buf) 0 (getf frame :length)))
-    ; (format t "(parse ~S):~%  frame header: ~S~%" framer frame)
-
+    ;; handle the case where the entire frame appears to be available:
     (let ((payload (buffer-read buf (getf frame :length))))
 
       (case (getf frame :type)
@@ -354,6 +352,12 @@ does not contain enough data, no further work is performed."
 	 (setf (getf frame :payload) (buffer-read payload (getf frame :length))))))
 
     frame))
+
+(defun framep (frame)
+  (and (listp frame)
+       (when-let (type-ptr (member :type frame))
+	 (getf *frame-types* (second type-ptr)))
+       t))
 
 (defun pack-error (e)
   (when (not (integerp e))

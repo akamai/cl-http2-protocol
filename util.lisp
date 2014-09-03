@@ -106,6 +106,7 @@ Set KEY-NAME and VALUE-NAME appropriately for each iteration."
   "A macro that expands into code to pack VALUES into bytes per the template in CONTROL.
 CONTROL is a string of characters which can be of these:
 n - 16-bit integer
+m - 24-bit integer
 N - 32-bit integer
 C - character or byte
 B - 8-bit integer"
@@ -120,8 +121,14 @@ B - 8-bit integer"
 		   (#\n
 		    `(16
 		      (setf ,value (coerce ,value '(unsigned-byte 16)))
-		      (append-byte (ldb (byte 8 #+big-endian 0 #+little-endian 8) ,value))
-		      (append-byte (ldb (byte 8 #+big-endian 8 #+little-endian 0) ,value))))
+		      (append-byte (ldb (byte 8 #+big-endian  0 #+little-endian  8) ,value))
+		      (append-byte (ldb (byte 8 #+big-endian  8 #+little-endian  0) ,value))))
+		   (#\m
+		    `(24
+		      (setf ,value (coerce ,value '(unsigned-byte 24)))
+		      (append-byte (ldb (byte 8 #+big-endian  0 #+little-endian 16) ,value))
+		      (append-byte (ldb (byte 8 #+big-endian  8 #+little-endian  8) ,value))
+		      (append-byte (ldb (byte 8 #+big-endian 16 #+little-endian  0) ,value))))
 		   (#\N
 		    `(32
 		      (setf ,value (coerce ,value '(unsigned-byte 32)))
@@ -197,6 +204,7 @@ B - 8-bit integer"
   "A macro that expands into code to unpack BYTES into values per the template in CONTROL.
 CONTROL is a string of characters which can be of these:
 n - 16-bit integer
+m - 24-bit integer
 N - 32-bit integer
 C - character
 B - 8-bit integer"
@@ -211,9 +219,18 @@ B - 8-bit integer"
 		 (#\n
 		  `(16
 		    (setf ,value (coerce 0 '(unsigned-byte 16)))
-		    (setf (ldb (byte 8 #+big-endian 0 #+little-endian 8) ,value) (aref ,bytes ,position))
+		    (setf (ldb (byte 8 #+big-endian  0 #+little-endian  8) ,value) (aref ,bytes ,position))
 		    (incf ,position)
-		    (setf (ldb (byte 8 #+big-endian 8 #+little-endian 0) ,value) (aref ,bytes ,position))
+		    (setf (ldb (byte 8 #+big-endian  8 #+little-endian  0) ,value) (aref ,bytes ,position))
+		    (incf ,position)))
+		 (#\m
+		  `(24
+		    (setf ,value (coerce 0 '(unsigned-byte 24)))
+		    (setf (ldb (byte 8 #+big-endian  0 #+little-endian 16) ,value) (aref ,bytes ,position))
+		    (incf ,position)
+		    (setf (ldb (byte 8 #+big-endian  8 #+little-endian  8) ,value) (aref ,bytes ,position))
+		    (incf ,position)
+		    (setf (ldb (byte 8 #+big-endian 16 #+little-endian  0) ,value) (aref ,bytes ,position))
 		    (incf ,position)))
 		 (#\N
 		  `(32

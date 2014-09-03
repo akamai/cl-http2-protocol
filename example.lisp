@@ -7,7 +7,7 @@
 (defparameter *server-cert-file*     (merge-pathnames "mycert.pem" 	  *key-pathname*))
 (defparameter *server-dhparams-file* (merge-pathnames "dhparams.2048.pem" *key-pathname*))
 
-(defparameter *next-protos-spec* '("h2-13"))
+(defparameter *next-protos-spec* '("h2-14"))
 
 (defparameter *dump-bytes*        t   "Set to T to dump bytes as they are received/sent. Set to NIL to quieten.")
 (defparameter *dump-bytes-stream* t   "Set to T for stdout, or a stream value.")
@@ -236,7 +236,7 @@
     (on conn :goaway
 	(lambda (s e m)
 	  (declare (ignore s))
-	  (format t "goaway error message, code: ~D, message: ~S~%" e (if (bufferp m) (buffer-string m) m))))
+	  (format t "goaway error message from peer: code: ~D, message: ~S~%" e (if (bufferp m) (buffer-string m) m))))
 
     (on conn :stream
 	(lambda (stream)
@@ -294,8 +294,8 @@
 				       (buffer-simple
 					(switch (path :test #'string=)
 					  ("/"
-					   "Hello HTTP 2.0! GET request~%")
-					  ("/status"
+					   (format nil "Hello HTTP 2.0! GET request~%"))
+					  ("/elstat"
 					   (let ((file (format nil "/tmp/dels~D" (random 1000000000))))
 					     (format nil "Event Loop Status~%~%~A~%" (as:dump-event-loop-status file))))
 					  (otherwise

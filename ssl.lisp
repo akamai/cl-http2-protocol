@@ -249,6 +249,8 @@
 (defun get-next-proto-negotiated (stream)
   (get-next-proto-negotiated-from-handle (ssl-stream-handle stream)))
 
+;; note that we added DH support here but CL-ASYNC actually does this
+;; itself so it's duplicated elsewhere
 (defun initialize (&key (method 'ssl-v23-method) rand-seed)
   (setf *locks* (loop
 		   repeat (crypto-num-locks)
