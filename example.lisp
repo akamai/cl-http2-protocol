@@ -14,12 +14,21 @@
 (defparameter *dump-bytes-base*   10  "Set to 10 for decimal bytes values or 16 for hexadecimal.")
 (defparameter *dump-bytes-hook*   nil "Set to NIL to pass bytes to the printer, or 'VECTOR-INSPECT or a function.")
 
+(defparameter *verbose-mode*      t   "Set to T for more parsed information about what's happening.")
+
 (defmacro maybe-dump-bytes (type bytes)
   "Provide the functionality to inspect what's coming in and out in a debugging session."
   `(when *dump-bytes*
      (let ((*print-base* *dump-bytes-base*))
        (format *dump-bytes-stream* ,(concatenate 'string "http2 " (string-downcase type) ": ~A~%")
 	       (if *dump-bytes-hook* (funcall *dump-bytes-hook* ,bytes) ,bytes)))))
+
+(defmacro say (format-control &rest format-args)
+  `(when *verbose-mode*
+     (format t ,format-control ,@format-args)))
+
+(defmacro say-important (format-control &rest format-args)
+  `(format t ,format-control ,@format-args))
 
 (defun close-socket-if-open (socket)
   "Close the SOCKET provided if non-NIL and SOCKET-CLOSED-P returns NIL."
@@ -52,7 +61,7 @@
 	 (*debug-mode* debug-mode)
 	 (*dump-bytes* dump-bytes)
 	 socket)
-    (format t "About to connect socket to ~A port ~A...~%" connect-host connect-port)
+    (say "About to connect socket to ~A port ~A...~%" connect-host connect-port)
     (cl+ssl:ensure-initialized :method ssl-method)
     (with-event-loop ()
       (when entry-handler (as:delay entry-handler))
@@ -69,7 +78,7 @@
 	       :connect-cb
 	       (lambda (new-socket)
 		 (setf socket new-socket)
-		 (format t "Connected (~A)!~%" (verify-ssl socket client-ctx))
+		 (say "Connected (~A)!~%" (verify-ssl socket client-ctx))
 		 (setf (socket-data socket) (example-client-connected-socket socket uri request-generator)))
 	       cl-async-options)
 	(add-event-loop-exit-callback (lambda () (close-socket-if-open socket)))
@@ -113,13 +122,13 @@
       (handler-case
 	  (error event)
 	(tcp-error ()
-	  (format t "TCP Error~%")
+	  (say "TCP Error~%")
 	  (done-with-socket))
 	(tcp-eof ()
-	  (format t "TCP EOF~%")
+	  (say "TCP EOF~%")
 	  (done-with-socket))
 	(tcp-timeout ()
-	  (format t "TCP Timeout~%")
+	  (say "TCP Timeout~%")
 	  (done-with-socket))))))
 
 (defun example-client-connected-socket (socket uri request-generator)
@@ -135,29 +144,29 @@
 	  (lambda (promise)
 	    (on promise :headers
 		(lambda (h)
-		  (format t "promise headers: ~S~%" h)))
+		  (say "promise headers: ~S~%" h)))
 	    (on promise :data
 		(lambda (d)
-		  (format t "promise data chunk: ~D~%" (length d))))))
+		  (say "promise data chunk: ~D~%" (length d))))))
       
       (on stream :close
 	  (lambda (e)
 	    (if e
-		(format t "stream closed, error: ~A~%" e)
-		(format t "stream closed~%"))
+		(say "stream closed, error: ~A~%" e)
+		(say "stream closed~%"))
 	    (close-socket socket)))
 
       (on stream :half-close
 	  (lambda ()
-	    (format t "closing client-end of the stream~%")))
+	    (say "closing client-end of the stream~%")))
 
       (on stream :headers
 	  (lambda (h)
-	    (format t "response headers: ~S~%" h)))
+	    (say "response headers: ~S~%" h)))
 
       (on stream :data
 	  (lambda (d)
-	    (format t "response data chunk: <<~A>>~%" (buffer-string (getf d :payload)))))
+	    (say "response data chunk: <<~A>>~%" (buffer-string (getf d :payload)))))
 
       (delay
        (if request-generator
@@ -178,7 +187,7 @@
 			    ("accept"     . "*/*")
 			    ("user-agent" . "cl-http2-protocol HTTP/2 Common Lisp Library Test Agent"))))
 	       (with-simple-restart (abort-request "Abort the HTTP/2 request")
-		 (format t "Sending HTTP/2 request~%~S~%" head)
+		 (say "Sending HTTP/2 request~%~S~%" head)
 		 (headers stream head :end-headers t :end-stream t))))))
       conn)))
 
@@ -204,7 +213,7 @@
   (let ((*debug-mode* debug-mode)
 	(*dump-bytes* dump-bytes)
 	sockets)
-    (format t "Starting server on port ~D~%" port)
+    (say "Starting server on port ~D~%" port)
     (with-event-loop ()
       (when entry-handler (as:delay entry-handler))
       (apply cl-async-server
@@ -214,7 +223,7 @@
 	     #'event-handler
 	     :connect-cb
 	     (lambda (socket)
-	       (format t "New TCP connection received!~%")
+	       (say "New TCP connection received!~%")
 	       (setf sockets (cons socket (delete-if #'socket-closed-p sockets)))
 	       (setf (socket-data socket) (example-server-accepted-socket socket request-handler)))
 	     (options-with-defaults cl-async-options
@@ -236,30 +245,31 @@
     (on conn :goaway
 	(lambda (s e m)
 	  (declare (ignore s))
-	  (format t "goaway error message from peer: code: ~D, message: ~S~%" e (if (bufferp m) (buffer-string m) m))))
+	  (say "goaway error message from peer: code: ~D, message: ~S~%" e (if (bufferp m) (buffer-string m) m))))
 
     (on conn :stream
 	(lambda (stream)
-	  (format t "connection has new stream~%")
+	  (say "connection has new stream~%")
 
 	  (let (req
 		(buffer (make-instance 'buffer)))
 	      
 	    (on stream :active
 		(lambda ()
-		  (format t "client opened new stream~%")))
+		  (say "client opened new stream~%")))
 
 	    (on stream :close
 		(lambda (e)
 		  (if e
-		      (format t "stream closed, error: ~A~%" e)
-		      (format t "stream closed~%"))))
+		      (say "stream closed, error: ~A~%" e)
+		      (say "stream closed~%"))))
 	      
 	    (on stream :headers
 		(lambda (h)
 		  (setf req h)
-		  (format t "request headers associated with stream ~S:~%~S~%" stream req)
+		  ;; (format t "request headers associated with stream ~S:~%~S~%" stream req)
 		  (macrolet ((req-header (name) `(cdr (assoc ,name req :test #'string=))))
+		    (say-important ":authority: ~S, :path: ~S~%" (req-header ":authority") (req-header ":path"))
 		    (when (string= (req-header ":method") "CONNECT") ; END_STREAM won't be set so handle here
 		      (if request-handler
 			  (funcall request-handler stream req)
@@ -267,12 +277,12 @@
 	      
 	    (on stream :data
 		(lambda (d)
-		  (format t "payload chunk: <<~A>>~%" d)
+		  (say "payload chunk: <<~A>>~%" d)
 		  (buffer<< buffer (getf d :payload))))
 	    
 	    (on stream :window
 		(lambda (w)
-		  (format t "stream window update received: ~A~%" w)))
+		  (say "stream window update received: ~A~%" w)))
 
 	    (on stream :half-close
 		(if request-handler
@@ -282,13 +292,13 @@
 		    (lambda ()
 		      (when (eq (stream-closed stream) :half-closed-remote)
 			(macrolet ((req-header (name) `(cdr (assoc ,name req :test #'string=))))
-			  (format t "client closed its end of the stream~%")
+			  (say "client closed its end of the stream~%")
 
 			  (let ((method (req-header ":method"))
 				content)
 			    (switch (method :test #'string=)
 			      ("GET"
-			       (format t "Received GET request~%")
+			       (say "Received GET request~%")
 			       (let ((path (req-header ":path")))
 				 (setf content
 				       (buffer-simple
@@ -302,7 +312,7 @@
 					   (format nil "Received GET request for path: ~S~%" path)))))))
 			      ("POST"
 			       (let ((post-str (buffer-string buffer)))
-				 (format t "Received POST request, payload: ~A~%" post-str)
+				 (say "Received POST request, payload: ~A~%" post-str)
 				 (setf content (buffer-simple "Hello HTTP 2.0! POST payload: " post-str))))
 			      (otherwise
 			       ;; should be better handled
