@@ -3,6 +3,19 @@
 ;; Add & override some functions in CL-ASYNC
 (in-package :cl-async)
 
+;; convert HANDLER-CASE to HANDLER-BIND so restarts are preserved in event handlers
+;; otherwise HANDLER-CASE makes this the new throwing context
+(defmacro run-event-cb (event-cb &rest args)
+  "Used inside of catch-app-errors, wraps the calling of an event-cb such that
+   errors are caught and saved, making it so an event-cb isn't called twice with
+   the same condition."
+  `(handler-bind ((t (lambda (e)
+		       ;; track the error so we don't re-fire (_evcb-err is defined in
+		       ;; catch-app-errors)
+		       (setf _evcb-err e))))
+     ;; run the event handler
+     (funcall ,event-cb ,@args)))
+
 ;; override to fix a bug with connect-cb WHEN statement handling (should go upstream)
 (define-c-callback tcp-event-cb :void ((bev :pointer) (events :short) (data-pointer :pointer))
   "Called whenever anything happens on a TCP socket. Ties into the anonymous

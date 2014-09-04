@@ -43,6 +43,7 @@
 			 request-generator
 			 entry-handler
 			 exit-handler
+			 (verbose-mode *verbose-mode*)
 			 (debug-mode *debug-mode*)
 			 (dump-bytes *dump-bytes*)
 			 (npn *next-protos-spec*)
@@ -58,12 +59,13 @@
   (let* ((connect-uri (or proxy-uri uri))
 	 (connect-host (uri-host connect-uri))
 	 (connect-port (or (uri-port connect-uri) (if (eq (uri-scheme connect-uri) :https) 443 80)))
+	 (*verbose-mode* verbose-mode)
 	 (*debug-mode* debug-mode)
 	 (*dump-bytes* dump-bytes)
 	 socket)
     (say "About to connect socket to ~A port ~A...~%" connect-host connect-port)
     (cl+ssl:ensure-initialized :method ssl-method)
-    (with-event-loop ()
+    (with-event-loop (:catch-app-errors nil)
       (when entry-handler (as:delay entry-handler))
       (let ((npn-cleanup (cl-async-ssl::init-ssl-npn :client cl+ssl::*ssl-global-context* npn))
 	    (sni-cleanup (cl-async-ssl::init-ssl-sni :client cl+ssl::*ssl-global-context* (or sni (uri-host (or proxy-uri uri))))))
@@ -208,9 +210,11 @@
 			 request-handler
 			 entry-handler
 			 exit-handler
+			 (verbose-mode *verbose-mode*)
 			 (debug-mode *debug-mode*)
 			 (dump-bytes *dump-bytes*))
-  (let ((*debug-mode* debug-mode)
+  (let ((*verbose-mode* verbose-mode)
+	(*debug-mode* debug-mode)
 	(*dump-bytes* dump-bytes)
 	sockets)
     (say "Starting server on port ~D~%" port)
