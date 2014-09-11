@@ -2,11 +2,11 @@
 
 (in-package :cl-http2-protocol)
 
-; HTTP 2.0 server connection class that implements appropriate header
+; HTTP/2 server connection class that implements appropriate header
 ; compression / decompression algorithms and stream management logic.
 ;
 ; Your code is responsible for feeding request data to the server object,
-; which in turn performs all of the necessary HTTP 2.0 decoding / encoding,
+; which in turn performs all of the necessary HTTP/2 decoding / encoding,
 ; state management, and the rest. See README.md for an example.
 
 (defclass server (connection)
@@ -15,9 +15,9 @@
    (compressor :accessor compressor :initarg :compressor :initform (make-instance 'compressor :type :response))
    (decompressor :accessor decompressor :initarg :decompressor :initform (make-instance 'decompressor :type :request))
    (push-enabled :reader push-enabled :initform t :type (member t nil)))
-  (:documentation "HTTP 2.0 server object"))
+  (:documentation "HTTP/2 server object"))
 
-; Technically HTTP/2.0 as a protocol does not differentiate push
+; Technically HTTP/2 as a protocol does not differentiate push
 ; between client/server, and the protocol can do it either way; but
 ; HTTP semantics applied to the protocol dictate that only a server
 ; pushes (it makes no sense for a client to push).

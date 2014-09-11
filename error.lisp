@@ -9,12 +9,12 @@
 
 (define-condition http2-not-started (http2-error)
   ((other-protocol :initarg :other-protocol :accessor other-protocol))
-  (:documentation "Raised if one side of the connection cannot do HTTP 2.0, usually
-due to NPN not resolving an HTTP 2.0 outcome (or different drafts of HTTP 2.0)."))
+  (:documentation "Raised if one side of the connection cannot do HTTP/2, usually
+due to NPN not resolving an HTTP/2 outcome (or different drafts of HTTP/2)."))
 
 (define-condition http2-handshake-error (http2-error) ()
   (:documentation "Raised if connection header is missing or invalid indicating that
-this is an invalid HTTP 2.0 request - no frames are emitted and the
+this is an invalid HTTP/2 request - no frames are emitted and the
 connection must be aborted."))
 
 (define-condition http2-protocol-error (http2-error) ()

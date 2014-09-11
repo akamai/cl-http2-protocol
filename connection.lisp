@@ -15,7 +15,7 @@
 
 ; Connection encapsulates all of the connection, stream, flow-control,
 ; error management, and other processing logic required for a well-behaved
-; HTTP 2.0 endpoint.
+; HTTP/2 endpoint.
 ;
 ; Note that this class should not be used directly. Instead, you want to
 ; use either Client or Server class to drive the HTTP 2.0 exchange.
@@ -93,7 +93,7 @@ new streams for current connection."
 (defalias stream<< receive)
 
 (defmethod receive ((connection connection) data)
-  "Decodes incoming bytes into HTTP 2.0 frames and routes them to
+  "Decodes incoming bytes into HTTP/2 frames and routes them to
 appropriate receivers: connection frames are handled directly, and
 stream frames are passed to appropriate stream objects."
 
@@ -248,7 +248,7 @@ All other frames are sent immediately."
 	    (emit connection :frame encoded-frame)))))
 
 (defmethod encode ((connection connection) frame)
-  "Applies HTTP 2.0 binary encoding to the frame.
+  "Applies HTTP/2 binary encoding to the frame.
 Returns a list of encoded frames since a frame may be chopped up for size."
   (with-slots (framer) connection
     (when (member (getf frame :type) '(:headers :push-promise))

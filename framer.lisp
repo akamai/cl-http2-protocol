@@ -156,7 +156,7 @@
     frame))
 
 (defmethod generate ((framer framer) frame)
-  "Generates encoded HTTP 2.0 frame."
+  "Generates encoded HTTP/2 frame."
   (let ((bytes (make-instance 'buffer :data (make-data-vector +common-header-size+)))
 	(length 0))
 
@@ -247,7 +247,7 @@
     (buffer-overwrite bytes (common-header framer frame))))
 
 (defmethod parse ((framer framer) (buf buffer))
-  "Decodes complete HTTP 2.0 frame from provided buffer. If the buffer
+  "Decodes complete HTTP/2 frame from provided buffer. If the buffer
 does not contain enough data, no further work is performed."
 
   ;; handle the two cases where insufficient bytes have been collected:

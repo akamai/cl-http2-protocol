@@ -2,12 +2,12 @@
 
 (in-package :cl-http2-protocol)
 
-; A single HTTP 2.0 connection can multiplex multiple streams in parallel:
+; A single HTTP/2 connection can multiplex multiple streams in parallel:
 ; multiple requests and responses can be in flight simultaneously and stream
 ; data can be interleaved and prioritized.
 ;
 ; This class encapsulates all of the state, transition, flow-control, and
-; error management as defined by the HTTP 2.0 specification. All you have
+; error management as defined by the HTTP/2 specification. All you have
 ; to do is subscribe to appropriate events (marked with ":" prefix in
 ; diagram below) and provide your application logic to handle request
 ; and response processing.
@@ -58,7 +58,7 @@
 			:local-closed :remote-closed
 			:local-rst :remote-rst
 			:half-closing :closing :closed)
-	  :documentation "Stream state as defined by HTTP 2.0.")
+	  :documentation "Stream state as defined by HTTP/2.")
    (error :reader stream-error-type :initform nil)
    (closed :reader stream-closed :initform nil
 	   :documentation "Reason why connection was closed.")
@@ -99,7 +99,7 @@
       (values priority dependency exclusive))))
 
 (defmethod receive ((stream stream) frame)
-  "Processes incoming HTTP 2.0 frames. The frames must be decoded upstream."
+  "Processes incoming HTTP/2 frames. The frames must be decoded upstream."
 
   (with-slots (priority dependency window id connection) stream
     (transition stream frame nil)
@@ -131,7 +131,7 @@
     (complete-transition stream frame)))
 
 (defmethod send ((stream stream) frame)
-  "Processes outgoing HTTP 2.0 frames. Data frames may be automatically
+  "Processes outgoing HTTP/2 frames. Data frames may be automatically
 split and buffered based on maximum frame size and current stream flow
 control window size."
   (with-slots (id priority) stream
@@ -291,7 +291,7 @@ to performing any application processing."
 success headers have been sent and the stream is ready for DATA frames."
   (change-class stream 'connect-stream))
 
-; HTTP 2.0 Stream States
+; HTTP/2 Stream States
 ; - http://tools.ietf.org/html/draft-ietf-httpbis-http2-05#section-5
 ;
 ;                       +--------+

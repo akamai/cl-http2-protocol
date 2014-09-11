@@ -2,8 +2,8 @@
 
 (in-package :cl-http2-protocol)
 
-; Implementation of header compression for HTTP 2.0 (HPACK) format adapted
-; to efficiently represent HTTP headers in the context of HTTP 2.0.
+; Implementation of header compression for HTTP/2 (HPACK) format adapted
+; to efficiently represent HTTP headers in the context of HTTP/2.
 ;
 ; - http://tools.ietf.org/html/draft-ietf-httpbis-header-compression
 

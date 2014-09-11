@@ -4,22 +4,30 @@ CL-HTTP2-PROTOCOL
 What This Is
 ------------
 
-This is [HTTP/2
-draft-13](http://tools.ietf.org/html/draft-ietf-httpbis-http2-13)
-(a.k.a. "h2-13")
-[interopability test
-code](https://github.com/http2/http2-spec/wiki/Implementations)
+This is
+[HTTP/2 draft-14](http://tools.ietf.org/html/draft-ietf-httpbis-http2-14)
+(a.k.a. "h2-14")
+[interopability test code](https://github.com/http2/http2-spec/wiki/Implementations)
 written in Common Lisp. It has only been tested against SBCL 1.1.8.0
-on x86, but it should be possible to make it work on other Common Lisp
-implementations, subject to some editing in util.lisp.
+to 1.1.14 on Ubuntu Linux on x86, but it should be possible to make it
+work on other Common Lisp implementations, subject to some editing in
+`util.lisp` and possibly `example.lisp`.
 
 The code offers a pure Common Lisp transport agnostic implementation
-of the HTTP/2 protocol at draft-13. An example client and server are
+of the HTTP/2 protocol at draft-14. An example client and server are
 included for a "Hello, World" style test, which employ TLS using
-`CL+SSL` and OpenSSL. For unencrypted communication (a.k.a. plain or
-direct), code using `USOCKET` is included (on SBCL, another option is
-available using `SB-BSD-SOCKETS`), but this is offered as a
-convenience only, as HTTP/2 will likely enforce TLS.
+`CL+SSL` and OpenSSL.
+
+Networking examples have been based on the `CL-ASYNC` library. Some
+alterations to functions in `CL+SSL` and `CL-ASYNC` were necessary and
+are included in the source tree. (Prior versions of this library were
+based on homemade event loops based on `USOCKET` and `SB-BSD-SOCKETS`
+but this has now been removed.)
+
+The current implementation is based on:
+
+* [draft-ietf-httpbis-http2-14](http://tools.ietf.org/html/draft-ietf-httpbis-http2-14)
+* [draft-ietf-httpbis-header-compression-09](http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-09)
 
 Support for:
 
@@ -36,11 +44,6 @@ Support for:
   compression](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html#HTTP2_HEADER_COMPRESSION)
 * [Server push](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html#HTTP2_PUSH)
 * Connection and stream management
-
-Current implementation (see [HPBN chapter for HTTP/2 overview](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html)), is based on:
-
-* [draft-ietf-httpbis-http2-13](http://tools.ietf.org/html/draft-ietf-httpbis-http2-13)
-* [draft-ietf-httpbis-header-compression-08](http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-08)
 
 Copyright
 ---------
@@ -59,41 +62,52 @@ Copyright
   contributions by Jochen Schmidt. Development into CL+SSL was done by
   David Lichteblau. License: MIT-style."
 
+* Contains code from
+  [CL-ASYNC](https://github.com/orthecreedence/cl-async) which contains
+  this notice: "As always, my code is MIT licenced. Do whatever the
+  hell you want with it. Enjoy!"
+
 Notes on Port
 -------------
 
-This code began life as a port from the
+This code began life as a port from the draft-06
 [Ruby interopability code](https://github.com/igrigorik/http-2)
 written by Ilya Grigorik released under MIT license. This code has
-since diverged to support newer drafts (up to draft-13 currently) and
-also to allow queueing and multiplexing support with a prioritization
-algorithm.
+since diverged to support subsequent working group drafts (up to
+draft-14 currently), to allow queueing and multiplexing
+support with a prioritization algorithm, and to move away from some
+Ruby idioms towards Lisp idioms over time.
 
-The original draft-06 port was done line-by-line so currently the
-structure, comments, and techniques closely follow along. Some port
-notes sprinkled in the code discuss choices or notes about the
-port. For the most part, the major differences are:
+The following are notes only of interest to folks who followed along
+since the beginning or have some interest in comparing the code
+revisions. Others may skip this section.
 
-* util.lisp defines several general purpose forms that give us some
-  capabilities similar to calls in Ruby as well as convenience calls.
+* `util.lisp` defines several general purpose forms that give us some
+  capabilities similar to calls in Ruby, as well as convenience calls
+  that are stylistic Lisp choices.
 
-* buffer.lisp is much longer than buffer.rb in order to allow us to
-  build up various primitives that Ruby offers in the `String` class
-  for free.
+* `buffer.lisp` is much longer than `buffer.rb` in order to allow us
+  to build up various primitives that Ruby offers in the `String`
+  class for free.
 
-* ssl.lisp redefines some items in the `CL+SSL` package (based on the
-  `cl+ssl-20140316-git` version) in order to allow SSL communication
-  for a variable-length frame binary protocol, as well as adding
-  support for wrapping NPN support from OpenSSL. See comments in that
-  file for more information.
+* `ssl.lisp` redefines some items in the `CL+SSL` package (based on
+  the `cl+ssl-20140316-git` version) and `tcp-ssl.lisp` overrides some
+  items in the `CL-ASYNC-SSL` package (based on the
+  `cl-async-20140616-git` version), mostly to add support for
+  [NPN](https://technotes.googlecode.com/git/nextprotoneg.html),
+  [SNI](http://en.wikipedia.org/wiki/Server_Name_Indication), and
+  [DH parameters](http://en.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange),
+  all of which are neecessary to establish the TLS connection as
+  required by HTTP/2. See the comments in those files for more
+  information.
 
-* net.lisp provides a `NET` class that abstracts networking
-  sufficiently to allow various approaches (`CL+SSL`, `USOCKET` albeit
-  not in the most efficient manner due to reading variable-sized
-  binary sequences, and `SB-BSD-SOCKETS` on SBCL which is more efficient).
+* `tcp.lisp` redefines some items in the `CL-ASYNC` package (based on
+  the `cl-async-20140616-git` version) mostly to fix a couple issues
+  encountered in corner cases.
 
-* The code in the example folder is contained in example.lisp in
-  the form of functions.
+* The code in the `example` folder is contained in `example.lisp` in
+  the form of functions. The examples in Lisp fire up `CL-ASYNC` event
+  loops.
   
 * The Ruby code uses arrays and hashes which in the CL code are
   variously ported as alists, plists, and hashes depending on the
@@ -101,7 +115,10 @@ port. For the most part, the major differences are:
 
 * The error conditions are largely the same, but are prefixed with
   `HTTP2-` and an additional one is added named `HTTP2-NOT-STARTED` as
-  it is very convenient in debugging (when NPN fails, etc).
+  it is very convenient in debugging (when NPN fails, etc). In
+  addition, the Lisp code defines various restarts in the normal
+  manner, so that during debugging certain failures do not require the
+  instant transaction to be aborted entirely.
 
 * Classes are matched one-to-one but module/package organization is
   different. Use the `HTTP2` package for most functions and the
@@ -109,20 +126,24 @@ port. For the most part, the major differences are:
 
 This Common Lisp code was produced by Martin Flack, a Principal
 Architect on the Foundry team in the Web Experience business at
-Akamai. Our team's mission is innovative applied R&D, and accordingly
-we explore new technologies close to the mission of excellent web
+[Akamai](http://www.akamai.com/).
+
+Our team's mission is innovative applied R&D, and accordingly we
+explore new technologies close to the mission of excellent web
 experience. Note that this code is intended to be used against the
 other HTTP/2 interopability client/server code linked above, and not
-necessarily any part of the Akamai network.
+necessarily any part of the Akamai network; nor is any feature herein
+indicative of any planned or actual feature of Akamai products or
+services.
 
 This system was named `CL-HTTP2-PROTOCOL` to avoid misunderstanding
 that it was related to `CL-HTTP`, a Common Lisp web server.
-Apologies for the redundant word, but it matches common parlance.
+Apologies for the redundant word.
 
 Server Setup and Example
 ------------
 
-To run this on a fresh Ubuntu Linux 13.10 server, follow these
+To run this on a fresh Ubuntu Linux 13.10 or 14.04 server, follow these
 instructions. A non-root user of "ubuntu" with sudo access is assumed.
 
 ```shell
@@ -143,6 +164,8 @@ sbcl --script <<EOF
 (ql:quickload :puri)
 (ql:quickload :usocket)
 (ql:quickload :cl+ssl)
+(ql:quickload :cl-async)
+(ql:quickload :cl-async-ssl)
 EOF
 #
 # ...optionally run screen if you're familiar with it and you want to
@@ -155,22 +178,25 @@ sbcl --script <<EOF
 (load "cl-http2-protocol/cl-http2-protocol.asd")
 (require :cl-http2-protocol)
 (in-package :http2-example)
-(example-server :secure t :port 8080)
+(example-server)
 EOF
 #
-# ...now you have an HTTP/2 server on port 8080
+# ...now you have an HTTP/2 server, secured with TLS, on port 8080
 # (note the server is ONLY HTTP/2; there is no HTTP/1.1 fallback)
+# (note that port 8080 is chosen only to allow a non-root user to
+# run the Lisp image and launch the server)
 #
-# ...to stop the server, ctrl+c followed by ABORT at the handler
+# ...to stop the server, CTRL+C followed by ABORT at the handler
 #
 # ...if you prefer to have less output and keep exceptions from
 # stopping the program, break the server, set these globals and rerun
 # the server:
+(setf *verbose-mode* nil)
 (setf *debug-mode* nil)
 (setf *dump-bytes* nil)
-(example-server :secure t :port 8080)
+(example-server)
 #
-# ...if you ran screen, press ctrl-a ctrl-c, else open a new terminal
+# ...if you ran screen, press CTRL-A CTRL-C, else open a new terminal
 # to the server in order to run the example client
 #
 # ...run a client:
@@ -198,11 +224,11 @@ openssl x509 -req -days 365 -in mycert.csr -signkey mykey.pem -out mycert.pem
 openssl dhparam -outform pem -out dhparams.2048.pem 2048
 ```
 
-At the time of writing (June 13, 2014), Firefox Nightly will be
-compatible with your HTTP/2 server started above as well. To use the
-`:SECURE` keyword and using the default port, the address bar in
-Firefox Nightly should be `https://HOST:8080/` where HOST is the
-hostname used to reach your server.
+At the time of writing (Sep 10, 2014), Firefox Nightly and Chrome
+Canary will be compatible with your HTTP/2 server started above as
+well. The address bar in Firefox Nightly should be
+`https://HOST:8080/` where HOST is the hostname used to reach your
+server.
 
 Getting Started
 ---------------
@@ -386,28 +412,6 @@ Events emitted by the `STREAM` object:
     <td>fires once for each received priority update (server only)</td>
   </tr>
 </table>
-
-Prioritization
---------------
-
-Each HTTP/2
-[stream has a priority value](http://chimera.labs.oreilly.com/books/1230000000545/ch12.html#HTTP2_PRIORITIZATION)
-that can be sent when the new stream is initialized, and optionally
-reprioritized later:
-
-```lisp
-(defvar client (make-instance 'client))
-
-(defvar default-priority-stream (new-stream client))
-(defvar custom-priority-stream (new-stream client :priority 42))
-
-; sometime later, change priority value
-(reprioritize custom-priority-stream 3200)  ; emits PRIORITY frame
-```
-
-On the opposite side, the server can optimize its stream processing
-order or resource allocation by accessing the stream priority value
-with `(STREAM-PRIORITY STREAM)`.
 
 Flow control
 -----------
