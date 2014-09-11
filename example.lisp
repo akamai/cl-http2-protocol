@@ -115,23 +115,28 @@
 
 (defun event-handler (event)
   "Handle a socket event."
-  (let* ((socket (tcp-socket event))
-	 (conn (socket-data socket)))
-    (flet ((done-with-socket ()
-	     (when conn
-	       (shutdown-connection conn))
-	     (close-socket-if-open socket)))
-      (handler-case
-	  (error event)
-	(tcp-error ()
-	  (say "TCP Error~%")
-	  (done-with-socket))
-	(tcp-eof ()
-	  (say "TCP EOF~%")
-	  (done-with-socket))
-	(tcp-timeout ()
-	  (say "TCP Timeout~%")
-	  (done-with-socket))))))
+  (if (typep event 'as:tcp-info)
+      (let* ((socket (tcp-socket event))
+	     (conn (socket-data socket)))
+	(say "Event ~S on socket ~S~%" socket event)
+	(flet ((done-with-socket ()
+		 (say "Done with socket ~S~%" socket)
+		 (when conn
+		   (say "Shutting down connection ~S~%" conn)
+		   (shutdown-connection conn))
+		 (close-socket-if-open socket)))
+	  (handler-case
+	      (error event)
+	    (tcp-error ()
+	      (say "TCP Error~%")
+	      (done-with-socket))
+	    (tcp-eof ()
+	      (say "TCP EOF~%")
+	      (done-with-socket))
+	    (tcp-timeout ()
+	      (say "TCP Timeout~%")
+	      (done-with-socket)))))
+      (say "Event ~S~%" event)))
 
 (defun example-client-connected-socket (socket uri request-generator)
   (let ((conn (make-instance 'client)))
@@ -222,8 +227,7 @@
       (when entry-handler (as:delay entry-handler))
       (apply cl-async-server
 	     interface port
-	     (lambda (socket bytes)
-	       (read-handler socket bytes))
+	     #'read-handler
 	     #'event-handler
 	     :connect-cb
 	     (lambda (socket)

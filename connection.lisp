@@ -41,7 +41,10 @@
   (setf (slot-value connection 'window-limit) (slot-value connection 'window)))
 
 (defmethod shutdown-connection ((connection connection))
-  (clear-stream-queues connection))
+  "After it's clear that a CONNECTION must end (e.g. TCP socket hungup) this will clear resources."
+  (with-slots (streams) connection
+    (dohash (key stream streams)
+      (shutdown stream))))
 
 (defgeneric send (obj frame))
 
@@ -125,19 +128,24 @@ stream frames are passed to appropriate stream objects."
 	    ;; Header blocks MUST be transmitted as a contiguous sequence of frames
 	    ;; with no interleaved frames of any other type, or from any other stream.
 	    (when continuation
+	      ;; verify that the inbound frame is valid given that we have a non-null CONTINUATION
 	      (when (or (not (eq (getf frame :type) :continuation))
-			(not (eq (getf frame :stream) (getf (first continuation) :stream))))
-		(connection-error connection :msg "Expected CONTINUATION frame to follow frames ~S not ~S" continuation frame))
+			(not (= (getf frame :stream) (getf (car continuation) :stream))))
+		(when *debug-mode*
+		  (break "Expected CONTINUATION to follow list ~S but got frame ~S" (reverse continuation) frame))
+		(connection-error connection :msg "Expected CONTINUATION frame"))
 
+	      ;; save this frame, and we're done if END_HEADERS is set
 	      (push frame continuation)
 	      (when (not (member :end-headers (getf frame :flags)))
 		(return-from this-frame))
 
+	      ;; combine the frames in CONTINUATION into one synthetic frame, and clear CONTINUATION
 	      (let ((list (nreverse continuation)))
-		(setf continuation nil)
+		(setf continuation nil
+		      frame (first list))
 		(let ((combined-buffer (reduce #'buffer<< list :key (lambda (f) (getf f :payload)))))
-		  (setf frame (first list)
-			(getf frame :payload) combined-buffer
+		  (setf (getf frame :payload) combined-buffer
 			(getf frame :length) (buffer-size combined-buffer))
 		  (push :end-headers (getf frame :flags)))))
 
@@ -179,11 +187,11 @@ stream frames are passed to appropriate stream objects."
 		   (when (not (member :end-headers (getf frame :flags)))
 		     (push frame continuation)
 		     (return-from this-frame))
-	     
+		   
 		   (decode-headers connection frame)
 		   (when (eq state :closed)
 		     (return-from this-frame))
-	     
+		   
 		   ;; PUSH_PROMISE frames MUST be associated with an existing, peer-
 		   ;; initiated stream... A receiver MUST treat the receipt of a
 		   ;; PUSH_PROMISE on a stream that is neither "open" nor
@@ -244,7 +252,7 @@ All other frames are sent immediately."
 Returns a list of encoded frames since a frame may be chopped up for size."
   (with-slots (framer) connection
     (when (member (getf frame :type) '(:headers :push-promise))
-      (list (encode-headers connection frame)))
+      (encode-headers connection frame))
     (mapcar (lambda (f) (generate framer f)) (maybe-downsize-frame connection frame))))
 
 (defmethod connection-frame-p ((connection connection) frame)
@@ -377,10 +385,9 @@ the individual fragments, then decompresses the block to reconstruct
 the header set - aka, header payloads are buffered until END_HEADERS,
 or an END_PROMISE flag is seen."
   (handler-case-unless *debug-mode*
-      (progn
-	(with-slots (decompressor) connection
-	  (when (bufferp (getf frame :payload))
-	    (setf (getf frame :payload) (postprocess decompressor (decode decompressor (getf frame :payload)))))))
+      (with-slots (decompressor) connection
+	(when (bufferp (getf frame :payload))
+	  (setf (getf frame :payload) (postprocess decompressor (decode decompressor (getf frame :payload))))))
     (t (e) (connection-error connection :type :compression-error :msg e))))
 
 (defmethod encode-headers ((connection connection) frame)
@@ -440,12 +447,6 @@ connection management callbacks."
 				when (eq (stream-dependency other-stream) stream)
 				do (setf (stream-dependency other-stream) nil)))))
 		 (return pending)))))
-
-(defmethod clear-stream-queues ((connection connection))
-  (with-slots (streams) connection
-    (dohash (key stream streams)
-      (when (queue-populated-p stream)
-	(clear-queue stream)))))
 
 ;; DRAIN-SEND-BUFFER is a FLOW-BUFFER method, but enforce ENCODE when used
 ;; on CONNECTION subclass, as we want encoding when calling from here

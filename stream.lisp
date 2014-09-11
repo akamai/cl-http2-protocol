@@ -186,6 +186,9 @@ control window size."
   (with-slots (queue) stream
     (not (endp queue))))
 
+(defmethod shutdown ((stream stream))
+  (clear-queue stream))
+
 (defmethod headers ((stream stream) headers &key (end-headers t) (end-stream nil) (action :send))
   "Sends a HEADERS frame containing HTTP response headers."
   (check-type headers cons "a list containing required minimum headers")

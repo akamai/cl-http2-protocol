@@ -134,7 +134,7 @@
   "Decodes common 9-byte header."
   (let (frame)
     (destructuring-bind (flength type flags stream)
-	(unpack *headerpack* (buffer-data (buffer-slice buf 0 +common-header-size+)))
+	(unpack *headerpack* (buffer-data buf))
 
       (setf (getf frame :length) flength)
 
@@ -254,9 +254,19 @@ does not contain enough data, no further work is performed."
   (when (< (buffer-size buf) +common-header-size+)
     (return-from parse nil))
   (let ((frame (read-common-header framer buf)))
+
+    ;;;; deal with a bug in Chrome Canary version 39.0.2151.2 canary (64-bit)
+    ;;(when (and (member (getf frame :type) '(:headers :continuation))
+    ;;	       (= (buffer-size buf) (getf frame :length)))
+    ;;  (format t "PRE-PARSE insufficient bytes for stated length but assuming it's a Canary bug and proceeding~%")
+    ;;  (format t "Final bytes that are snipped: ~S~%" (subseq (buffer-data buf)
+    ;;							     (- (buffer-size buf) +common-header-size+)
+    ;;							     (buffer-size buf)))
+    ;;  (decf (getf frame :length) +common-header-size+))
+
     (when (< (buffer-size buf) (+ +common-header-size+ (getf frame :length)))
-      (return-from parse nil))
-    (buffer-read buf +common-header-size+)
+	  (return-from parse nil))
+    (buffer-read buf +common-header-size+)  ; eat what was processed already
 
     ;; handle the case where the entire frame appears to be available:
     (let ((payload (buffer-read buf (getf frame :length))))
@@ -264,23 +274,25 @@ does not contain enough data, no further work is performed."
       (case (getf frame :type)
 	(:data
 	 (let ((flags (getf frame :flags))
-	       (size (getf frame :length))
-	       (pad 0))
+	       ;; payload-size and padding-size are modified as we go:
+	       (payload-size (getf frame :length))
+	       (padding-size 0))
 	   (when (member :padded flags)
-	     (incf pad (buffer-readbyte payload))
-	     (decf size))
-	   (when (> pad size)
-	     (raise :http2-protocol-error "Padding (~D) exceeds remaining length (~D)" pad size))
-	   (decf size pad)
-	   (setf (getf frame :payload) (buffer-read payload size))))
+	     (incf padding-size (buffer-readbyte payload))
+	     (decf payload-size))
+	   (when (> padding-size payload-size)
+	     (raise :http2-protocol-error "Padding (~D) exceeds remaining length (~D)" padding-size payload-size))
+	   (decf payload-size padding-size)
+	   (setf (getf frame :payload) (buffer-read payload payload-size))))
 
 	(:headers
 	 (let ((flags (getf frame :flags))
-	       (size (getf frame :length))
-	       (pad 0))
+	       ;; payload-size and padding-size are modified as we go:
+	       (payload-size (getf frame :length))
+	       (padding-size 0))
 	   (when (member :padded flags)
-	     (incf pad (buffer-readbyte payload))
-	     (decf size))
+	     (incf padding-size (buffer-readbyte payload))
+	     (decf payload-size))
 	   (if (member :priority flags)
 	       (progn
 		 (setf (getf frame :exclusive-dependency) (logbitp 7 (buffer-readbyte payload nil)))
@@ -289,14 +301,14 @@ does not contain enough data, no further work is performed."
 		     (raise :http2-protocol-error "Stream cannot depend on itself (~D)" (getf frame :stream)))
 		   (setf (getf frame :stream-dependency) dependency))
 		 (setf (getf frame :weight) (1+ (buffer-readbyte payload)))
-		 (decf size 5))
+		 (decf payload-size 5))
 	       (setf (getf frame :exclusive-dependency) nil
 		     (getf frame :stream-dependency) 0
 		     (getf frame :weight) 16))
-	   (when (> pad size)
-	     (raise :http2-protocol-error "Padding (~D) exceeds remaining length (~D)" pad size))
-	   (decf size pad)
-	   (setf (getf frame :payload) (buffer-read payload size))))
+	   (when (> padding-size payload-size)
+	     (raise :http2-protocol-error "Padding (~D) exceeds remaining length (~D)" padding-size payload-size))
+	   (decf payload-size padding-size)
+	   (setf (getf frame :payload) (buffer-read payload payload-size))))
 
 	(:priority
 	 (setf (getf frame :exclusive-dependency) (logbitp 7 (buffer-readbyte payload nil)))
@@ -322,34 +334,35 @@ does not contain enough data, no further work is performed."
 
 	(:push-promise
 	 (let ((flags (getf frame :flags))
-	       (size (getf frame :length))
-	       (pad 0))
+	       ;; payload-size and padding-size are modified as we go:
+	       (payload-size (getf frame :length))
+	       (padding-size 0))
 	   (when (member :padded flags)
-	     (incf pad (buffer-readbyte payload))
-	     (decf size))
-	   (when (> pad size)
-	     (raise :http2-protocol-error "Padding (~D) exceeds remaining length (~D)" pad size))
-	   (decf size pad)
+	     (incf padding-size (buffer-readbyte payload))
+	     (decf payload-size))
+	   (when (> padding-size payload-size)
+	     (raise :http2-protocol-error "Padding (~D) exceeds remaining length (~D)" padding-size payload-size))
+	   (decf payload-size padding-size)
 	   (setf (getf frame :promise-stream) (logand (buffer-read-uint32 payload) *uint32-msb-reserved*))
-	   (decf size 4)
-	   (setf (getf frame :payload) (buffer-read payload size))))
+	   (decf payload-size 4)
+	   (setf (getf frame :payload) (buffer-read payload payload-size))))
 
 	(:ping
-	 (setf (getf frame :payload) (buffer-read payload (getf frame :length))))
+	 (let ((payload-size (getf frame :length)))
+	   (setf (getf frame :payload) (if (plusp payload-size) (buffer-read payload payload-size)))))
 
 	(:goaway
 	 (setf (getf frame :last-stream) (logand (buffer-read-uint32 payload) *uint32-msb-reserved*))
 	 (setf (getf frame :error) (unpack-error (buffer-read-uint32 payload)))
-
-	 (let ((size (- (getf frame :length) 8)))
-	   (when (plusp size)
-	     (setf (getf frame :payload) (buffer-read payload size)))))
+	 (let ((payload-size (- (getf frame :length) 8)))
+	   (setf (getf frame :payload) (if (plusp payload-size) (buffer-read payload payload-size)))))
 
 	(:window-update
 	 (setf (getf frame :increment) (logand (buffer-read-uint32 payload) *uint32-msb-reserved*)))
 
 	((:continuation :extensible :experimental)
-	 (setf (getf frame :payload) (buffer-read payload (getf frame :length))))))
+	 (let ((payload-size (getf frame :length)))
+	   (setf (getf frame :payload) (if (plusp payload-size) (buffer-read payload payload-size)))))))
 
     frame))
 

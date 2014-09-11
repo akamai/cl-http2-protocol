@@ -7,6 +7,10 @@
   (:documentation "Implementation of stream and connection DATA flow control: frames may
 be split and / or may be buffered based on current flow control window."))
 
+(defmethod shutdown :after ((obj flowbuffer-include))
+  (with-slots (send-buffer) obj
+    (setf send-buffer nil)))
+
 (defmethod buffered-amount ((obj flowbuffer-include))
   "Amount of buffered data. Only DATA payloads are subject to flow stream
 and connection flow control."

@@ -72,7 +72,7 @@
   "Default working set as defined by the spec.")
 
 (defparameter *static-table-length* (length *static-table*)
-  "Must equal the length of *STATIC-TABLE*.")
+  "Must equal the length of *STATIC-TABLE*")
 ;; *static-table* and (table encoding-context) should probably be
 ;; *vectors instead, then keeping this length would not be necessary
 
@@ -80,17 +80,13 @@
   "The size of an entry is the sum of its name's length in octets,
 its value's length in octets, plus 32.")
 
-; The set of components used to encode or decode a header set form an
-; encoding context: an encoding context contains a header table and a
-; reference set - there is one encoding context for each direction.
-
 (defclass encoding-context (error-include)
   ((type :initarg :type)
    (table :reader table :initform nil
 	  :documentation "Running set of headers used as a compression dictionary, in addition to *STATIC-TABLE*.")
    (settings-limit :accessor settings-limit :initarg :settings-limit :initform 4096)
    (limit :accessor limit :initarg :limit :initform 4096))
-  (:documentation "Encoding context: a header table and reference set for one direction"))
+  (:documentation "Encoding context: a header table and related state for one direction"))
 
 (defmethod initialize-instance :after ((encoding-context encoding-context) &key)
   (with-slots (settings-limit limit) encoding-context
@@ -465,15 +461,7 @@ on local role: client (:TYPE :REQUEST) or server (:TYPE :RESPONSE)."))
       header)))
 
 (defmethod decode ((decompressor decompressor) buf)
-  "Decodes and processes header commands within provided buffer.
-
-Once all the representations contained in a header block have been
-processed, the headers that are in common with the previous header
-set are emitted, during the reference set emission.
-
-For the reference set emission, each header contained in the
-reference set that has not been emitted during the processing of the
-header block is emitted."
+  "Decodes and processes header commands within provided buffer."
   (with-slots (cc) decompressor
     (loop
        until (buffer-empty-p buf)
