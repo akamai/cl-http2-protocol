@@ -1,11 +1,11 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
 (in-package :cl-http2-protocol)
 
-; Implementation of header compression for HTTP/2 (HPACK) format adapted
-; to efficiently represent HTTP headers in the context of HTTP/2.
-;
-; - http://tools.ietf.org/html/draft-ietf-httpbis-header-compression
+;; Implementation of header compression for HTTP/2 (HPACK) format adapted
+;; to efficiently represent HTTP headers in the context of HTTP/2.
+;;
+;; - http://tools.ietf.org/html/draft-ietf-httpbis-header-compression
 
 (defparameter *static-table*
   '((":authority"                  . "")
@@ -157,18 +157,18 @@ its value's length in octets, plus 32.")
 (defmethod add-cmd ((encoding-context encoding-context) header)
   "Emits best available command to encode provided header."
   (with-slots (table) encoding-context
-    ; check if we have an exact match in header table
+    ;; check if we have an exact match in header table
     (when-let (idx (or (position header *static-table* :test #'equal)
 		       (awhen (position header table :test #'equal)
 			  (+ it *static-table-length*))))
       (return-from add-cmd (list :name (1+ idx) :type :indexed)))
 
-    ; check if we have a partial match on header name
+    ;; check if we have a partial match on header name
     (when-let (idx (or (position (car header) *static-table* :key #'car :test #'equal)
 		       (awhen (position (car header) table :key #'car :test #'equal)
 			 (+ it *static-table-length*))))
-      ; default to incremental indexing
-      ; TODO: implement literal without indexing strategy
+      ;; default to incremental indexing
+      ;; TODO: implement literal without indexing strategy
       (return-from add-cmd (list :name (1+ idx) :value (cdr header) :type :incremental)))
 
     (list :name (car header) :value (cdr header) :type :incremental)))
@@ -489,4 +489,3 @@ otherwise, a fresh list is passed back, although header entries may share struct
 
 (defmethod postprocess ((decompressor decompressor) headers)
   (postprocess-headers headers))
-

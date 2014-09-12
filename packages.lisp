@@ -1,4 +1,4 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
 (in-package :cl-user)
 

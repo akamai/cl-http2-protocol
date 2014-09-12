@@ -1,12 +1,12 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
 (in-package :cl-http2-protocol)
 
-; Port notes: We cannot subclass STRING in CL to accomplish what we
-; want. We have less utility methods out-of-the-box, so we'll define a
-; bunch of methods similar to the Ruby String ones. We start with some
-; vector primitives, and then define the BUFFER class, which will have
-; a slot carrying the actual binary data.
+;; Port notes: We cannot subclass STRING in CL to accomplish what we
+;; want. We have less utility methods out-of-the-box, so we'll define a
+;; bunch of methods similar to the Ruby String ones. We start with some
+;; vector primitives, and then define the BUFFER class, which will have
+;; a slot carrying the actual binary data.
 
 (defun vector-overwrite (src dest n)
   "Modifies vector DEST by writing the elements of vector SRC to the beginning, and returns DEST."
@@ -160,7 +160,7 @@ is done ignoring errors, so it may bail and use the raw bytes."
     (raise simple-condition "MAKE-DATA-VECTOR called with ~A as N value, greater than safety maximum." n))
   (make-array (max n 1024) :element-type '(unsigned-byte 8) :adjustable t :fill-pointer n))
 
-; buffer operations
+;; buffer operations
 
 (defclass buffer ()
   ((vectordata :accessor buffer-data :initarg :data :initform (make-data-vector 0)))
@@ -222,19 +222,19 @@ is done ignoring errors, so it may bail and use the raw bytes."
   (vector-overwrite (buffer-data buffer2) (buffer-data buffer) (buffer-size buffer2))
   buffer)
 
-; a BUFFER<< call that has (PACK ...) as its parameter will be written to a PACK call
-; using the BUFFER-DATA array directly, instead of creating a temporary array which
-; is then appended onto the BUFFER-DATA array
-;
-; e.g.
-;  (BUFFER<< BUFFER (PACK *UINT32* NUM))
-; becomes
-;  (LET ((#:G (BUFFER-DATA BUFFER)))
-;    (PACK *UINT32* NUM :ARRAY #:G :START (FILL-POINTER #:G))
-;
-; ...which is slightly faster because a temporary array is not created, but rather the
-; bytes are being added by the PACK maco directly into the BUFFER-DATA
-;
+;; a BUFFER<< call that has (PACK ...) as its parameter will be written to a PACK call
+;; using the BUFFER-DATA array directly, instead of creating a temporary array which
+;; is then appended onto the BUFFER-DATA array
+;;
+;; e.g.
+;;  (BUFFER<< BUFFER (PACK *UINT32* NUM))
+;; becomes
+;;  (LET ((#:G (BUFFER-DATA BUFFER)))
+;;    (PACK *UINT32* NUM :ARRAY #:G :START (FILL-POINTER #:G))
+;;
+;; ...which is slightly faster because a temporary array is not created, but rather the
+;; bytes are being added by the PACK maco directly into the BUFFER-DATA
+;;
 (define-compiler-macro buffer<< (&whole whole buffer thing)
   (if (and (listp thing) (eq (car thing) 'pack))
       (with-gensyms (data)

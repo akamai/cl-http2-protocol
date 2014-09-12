@@ -1,4 +1,4 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
 (in-package :cl-http2-protocol)
 
@@ -13,13 +13,13 @@
     (buffer-simple (concatenate 'string "PRI * HTTP/2.0" #1='(#\Return #\Linefeed) #1# "SM" #1# #1#))
     "Default connection \"fast-fail\" preamble string as defined by the spec"))
 
-; Connection encapsulates all of the connection, stream, flow-control,
-; error management, and other processing logic required for a well-behaved
-; HTTP/2 endpoint.
-;
-; Note that this class should not be used directly. Instead, you want to
-; use either Client or Server class to drive the HTTP 2.0 exchange.
-;
+;; Connection encapsulates all of the connection, stream, flow-control,
+;; error management, and other processing logic required for a well-behaved
+;; HTTP/2 endpoint.
+;;
+;; Note that this class should not be used directly. Instead, you want to
+;; use either Client or Server class to drive the HTTP 2.0 exchange.
+;;
 (defclass connection (flowbuffer-include emitter-include error-include)
   ((state :reader conn-state :type (member :new :connection-header :connected :closed))
    (error :reader conn-error :initform nil)
@@ -62,11 +62,11 @@
   (send connection (list :type :ping :stream 0 :payload payload))
   (if blk (once connection :pong blk)))
 
-; Endpoints MAY append opaque data to the payload of any GOAWAY frame.
-; Additional debug data is intended for diagnostic purposes only and
-; carries no semantic value. Debug data MUST NOT be persistently stored,
-; since it could contain sensitive information.
-;
+;; Endpoints MAY append opaque data to the payload of any GOAWAY frame.
+;; Additional debug data is intended for diagnostic purposes only and
+;; carries no semantic value. Debug data MUST NOT be persistently stored,
+;; since it could contain sensitive information.
+;;
 (defmethod goaway ((connection connection) &optional (error :no-error) (payload nil))
   "Sends a GOAWAY frame indicating that the peer should stop creating
 new streams for current connection."
@@ -88,7 +88,7 @@ new streams for current connection."
 			 :payload (list :settings-max-concurrent-streams stream-limit
 					:settings-initial-window-size window-limit))))
 
-; these have to appear here to compile (receive connection ...) properly
+;; these have to appear here to compile (receive connection ...) properly
 (defgeneric receive (obj data))
 (defalias stream<< receive)
 
@@ -270,7 +270,7 @@ frame addressed to stream ID = 0."
   (with-slots (state window) connection
     (case state
       (:connection-header
-       ; SETTINGS frames MUST be sent at the start of a connection.
+       ;; SETTINGS frames MUST be sent at the start of a connection.
        (connection-settings connection frame)
        (setf state :connected))
 
@@ -288,9 +288,9 @@ frame addressed to stream ID = 0."
 		    (list :type :ping :stream 0 :flags (list :ack)
 			  :payload (getf frame :payload)))))
 	 (:goaway
-	  ; Receivers of a GOAWAY frame MUST NOT open additional streams on
-          ; the connection, although a new connection can be established
-          ; for new streams.
+	  ;; Receivers of a GOAWAY frame MUST NOT open additional streams on
+          ;; the connection, although a new connection can be established
+          ;; for new streams.
 	  (setf state :closed)
 	  (emit connection :goaway (getf frame :last-stream) (getf frame :error) (getf frame :payload)))
 	 (otherwise
@@ -312,9 +312,9 @@ frame addressed to stream ID = 0."
       (doplist (key value (getf frame :payload))
 	(connection-setting connection key value))
 
-      ; Bit 1 being set indicates that this frame acknowledges
-      ; receipt and application of the peer's SETTINGS frame. When this
-      ; bit is set, the payload of the SETTINGS frame MUST be empty.
+      ;; Bit 1 being set indicates that this frame acknowledges
+      ;; receipt and application of the peer's SETTINGS frame. When this
+      ;; bit is set, the payload of the SETTINGS frame MUST be empty.
       (send connection (list :type :settings :flags '(:ack) :payload nil)))))
 
 (defmethod connection-setting ((connection connection) (key (eql :settings-header-table-size)) value)
@@ -332,6 +332,7 @@ frame addressed to stream ID = 0."
 ;; controlled frames until it receives WINDOW_UPDATE frames that cause
 ;; the flow control window to become positive.
 (defmethod connection-setting ((connection connection) (key (eql :settings-initial-window-size)) value)
+  "Handle SETTINGS_INITIAL_WINDOW_SIZE."
   (with-slots (window window-limit streams) connection
     (setf window (+ (- window window-limit) value))
     (dohash (id stream streams)
@@ -339,18 +340,28 @@ frame addressed to stream ID = 0."
     (setf window-limit value)))
 
 (defmethod connection-setting ((connection connection) (key (eql :settings-max-concurrent-streams)) value)
+  "Handle SETTINGS_MAX_CONCURRENT_STREAMS."
   (with-slots (stream-limit) connection
     (setf stream-limit value)))
 
 (defmethod connection-setting ((connection connection) (key (eql :settings-max-frame-size)) value)
+  "Handle SETTINGS_MAX_FRAME_SIZE."
   (with-slots (payload-limit) connection
     (setf payload-limit value)))
 
 (defmethod connection-setting ((connection connection) (key (eql :settings-max-header-list-size)) value)
+  "Handle SETTINGS_MAX_HEADER_LIST_SIZE."
   (with-slots (headers-limit) connection
     (setf headers-limit value)))
 
 (defmethod maybe-downsize-frame ((connection connection) frame)
+  "Take one FRAME as input and return a list of frames. FRAME is split
+up into smaller frames if necesary per the SETTINGS_MAX_FRAME_SIZE
+limit in force at the given moment. If FRAME is unchanged then a list
+will be returned where the single member is EQ with the FRAME given as
+input; otherwise a list is returned in which the final member is the
+original FRAME modified to hold less data. Frames returned are ordered
+such that the first of the list should be transmitted first."
   (with-slots (payload-limit) connection
     (let (frames
 	  (payload (getf frame :payload)))
@@ -373,6 +384,9 @@ frame addressed to stream ID = 0."
 	  (list frame)))))
 
 (defmethod check-headers-size ((connection connection) headers)
+  "Verify that the headers are not larger than the current value of
+SETTINGS_MAX_HEADER_LIST_SIZE in force. Signal HTTP2-HEADERS-TOO-BIG
+as an error if necessary; otherwise return NIL."
   (with-slots (headers-limit compressor) connection
     (when headers-limit
       (when (> (headers-size compressor headers) headers-limit)
@@ -408,10 +422,9 @@ connection management callbacks."
     (let ((stream (make-instance 'stream :id id :priority priority
 				 :window window-limit :parent parent
 				 :connection connection)))
-
-      ; Streams that are in the "open" state, or either of the "half closed"
-      ; states count toward the maximum number of streams that an endpoint is
-      ; permitted to open.
+      ;; Streams that are in the "open" state, or either of the "half closed"
+      ;; states count toward the maximum number of streams that an endpoint is
+      ;; permitted to open.
       (once stream :active (lambda-ignore (incf active-stream-count)))
       (once stream :close  (lambda-ignore (decf active-stream-count)))
       (when (typep connection 'server)

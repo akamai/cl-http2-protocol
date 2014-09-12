@@ -1,4 +1,4 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
 (in-package :cl-http2-protocol-example)
 
@@ -24,10 +24,12 @@
 	       (if *dump-bytes-hook* (funcall *dump-bytes-hook* ,bytes) ,bytes)))))
 
 (defmacro say (format-control &rest format-args)
+  "Print output using FORMAT when *VERBOSE-MODE* is true."
   `(when *verbose-mode*
      (format t ,format-control ,@format-args)))
 
 (defmacro say-important (format-control &rest format-args)
+  "Print output using FORMAT."
   `(format t ,format-control ,@format-args))
 
 (defun close-socket-if-open (socket)
@@ -139,6 +141,13 @@
       (say "Event ~S~%" event)))
 
 (defun example-client-connected-socket (socket uri request-generator)
+  "Create a logical protocol CLIENT object and instrument it to work
+with the SOCKET. Either URI or REQUEST-GENERATOR must be specified in
+order to generate a request. If a URI is given, an HTTP/2 GET request
+with default headers will be generated. If REQUEST-GENERATOR is given,
+it will be called instead with a STREAM object and the URI object,
+which it may observe or ignore, and should make calls to protocol
+functions such as (HEADERS ...) to make a request."
   (let ((conn (make-instance 'client)))
     (on conn :frame
 	(lambda (bytes)
@@ -199,6 +208,10 @@
       conn)))
 
 (defun pump-connection (conn)
+  "Pump stream queues."
+  ;; These queues are not used by default. To use queues, the
+  ;; (headers) and (data) calls should have :ACTION :ENQUEUE added as
+  ;; a keyword parameter (default is :ACTION :SEND).
   (when (pump-stream-queues conn 2)
     (delay (lambda () (pump-connection conn)))))
 
@@ -218,6 +231,7 @@
 			 (verbose-mode *verbose-mode*)
 			 (debug-mode *debug-mode*)
 			 (dump-bytes *dump-bytes*))
+  "Exercise HTTP/2 to serve responses."
   (let ((*verbose-mode* verbose-mode)
 	(*debug-mode* debug-mode)
 	(*dump-bytes* dump-bytes)
@@ -244,6 +258,13 @@
       (when exit-handler (add-event-loop-exit-callback exit-handler)))))
 
 (defun example-server-accepted-socket (socket request-handler)
+  "Create a logical protocol SERVER object and instrument it to work
+with the SOCKET. If REQUEST-HANDLER is NIL, a default example will
+be used that can echo simple answers back. If REQUEST-HANDLER is
+given, it will be called with a STREAM object and a list of request
+headers (an alist with string names and values) and should make
+calls to protocol functions such as (HEADERS ...) and (DATA ...) to
+reply to the request."
   (let ((conn (make-instance 'server)))
     (on conn :frame
 	(lambda (bytes)

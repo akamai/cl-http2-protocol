@@ -1,4 +1,5 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Portions copied from CL-ASYNC, also under MIT License. Please see README.md for details.
 
 ;; Add & override some functions in CL-ASYNC
 (in-package :cl-async)

@@ -1,4 +1,4 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
 (in-package :cl-http2-protocol)
 
@@ -262,14 +262,15 @@
       (255 #*11111111111111111111101110 26 #x3ffffee)
       (256 #*111111111111111111111111111111 30 #x3fffffff :eos))))
 
+;; should probably use DEFSTRUCT instead
 (define-compiler-macro huff-char-code (entry) `(first  ,entry))
 (define-compiler-macro huff-bitv      (entry) `(second ,entry))
 (define-compiler-macro huff-nbits     (entry) `(third  ,entry))
 (define-compiler-macro huff-value     (entry) `(fourth ,entry))
 
 (defun byte-vector-to-bit-vector (bytes length)
-  "Create a) vector of type BIT from a vector of type (UNSIGNED-BYTE 8)."
-  ; seems like there should be implementation-specific fast ways of doing this...
+  "Create a vector of type BIT from a vector of type (UNSIGNED-BYTE 8)."
+  ;; seems like there should be implementation-specific fast ways of doing this
   (loop
      with data = (make-array (* length 8) :element-type 'bit)
      for c across bytes
@@ -351,7 +352,7 @@
 		    (setf (fill-pointer data) dp)
 		    (return (values data (- bit-input-length bp))))))))
 
-; sometimes this causes a stack overflow or some such:
+;; sometimes this causes a stack overflow or some such:
 ;(def-huffman-decode *huffman-request*)
 
 (defun test-huffman-decode-1 ()

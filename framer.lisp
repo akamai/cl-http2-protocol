@@ -1,4 +1,4 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
 (in-package :cl-http2-protocol)
 
@@ -367,6 +367,7 @@ does not contain enough data, no further work is performed."
     frame))
 
 (defun framep (frame)
+  "Returns T if FRAME is a frame object and NIL otherwise."
   (and (listp frame)
        (when-let (type-ptr (member :type frame))
 	 (getf *frame-types* (second type-ptr)))

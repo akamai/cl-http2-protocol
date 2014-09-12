@@ -1,4 +1,4 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
 (in-package :cl-http2-protocol)
 
@@ -36,7 +36,7 @@ client and server contexts are out of sync."))
   (:documentation "Raised on invalid stream processing: invalid frame type received or
 sent, or invalid command issued."))
 
-; recoverable errors
+;; recoverable errors
 
 (define-condition http2-error-recoverable (http2-error) ())
 

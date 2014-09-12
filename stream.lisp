@@ -1,41 +1,41 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
 (in-package :cl-http2-protocol)
 
-; A single HTTP/2 connection can multiplex multiple streams in parallel:
-; multiple requests and responses can be in flight simultaneously and stream
-; data can be interleaved and prioritized.
-;
-; This class encapsulates all of the state, transition, flow-control, and
-; error management as defined by the HTTP/2 specification. All you have
-; to do is subscribe to appropriate events (marked with ":" prefix in
-; diagram below) and provide your application logic to handle request
-; and response processing.
-;
-;                         +--------+
-;                    PP   |        |   PP
-;                ,--------|  idle  |--------.
-;               /         |        |         \
-;              v          +--------+          v
-;       +----------+          |           +----------+
-;       |          |          | H         |          |
-;   ,---|:reserved |          |           |:reserved |---.
-;   |   | (local)  |          v           | (remote) |   |
-;   |   +----------+      +--------+      +----------+   |
-;   |      | :active      |        |      :active |      |
-;   |      |      ,-------|:active |-------.      |      |
-;   |      | H   /   ES   |        |   ES   \   H |      |
-;   |      v    v         +--------+         v    v      |
-;   |   +-----------+          |          +-_---------+  |
-;   |   |:half_close|          |          |:half_close|  |
-;   |   |  (remote) |          |          |  (local)  |  |
-;   |   +-----------+          |          +-----------+  |
-;   |        |                 v                |        |
-;   |        |    ES/R    +--------+    ES/R    |        |
-;   |        `----------->|        |<-----------'        |
-;   | R                   | :close |                   R |
-;   `-------------------->|        |<--------------------'
-;                         +--------+
+;; A single HTTP/2 connection can multiplex multiple streams in parallel:
+;; multiple requests and responses can be in flight simultaneously and stream
+;; data can be interleaved and prioritized.
+;;
+;; This class encapsulates all of the state, transition, flow-control, and
+;; error management as defined by the HTTP/2 specification. All you have
+;; to do is subscribe to appropriate events (marked with ":" prefix in
+;; diagram below) and provide your application logic to handle request
+;; and response processing.
+;;
+;;                         +--------+
+;;                    PP   |        |   PP
+;;                ,--------|  idle  |--------.
+;;               /         |        |         \
+;;              v          +--------+          v
+;;       +----------+          |           +----------+
+;;       |          |          | H         |          |
+;;   ,---|:reserved |          |           |:reserved |---.
+;;   |   | (local)  |          v           | (remote) |   |
+;;   |   +----------+      +--------+      +----------+   |
+;;   |      | :active      |        |      :active |      |
+;;   |      |      ,-------|:active |-------.      |      |
+;;   |      | H   /   ES   |        |   ES   \   H |      |
+;;   |      v    v         +--------+         v    v      |
+;;   |   +-----------+          |          +-_---------+  |
+;;   |   |:half_close|          |          |:half_close|  |
+;;   |   |  (remote) |          |          |  (local)  |  |
+;;   |   +-----------+          |          +-----------+  |
+;;   |        |                 v                |        |
+;;   |        |    ES/R    +--------+    ES/R    |        |
+;;   |        `----------->|        |<-----------'        |
+;;   | R                   | :close |                   R |
+;;   `-------------------->|        |<--------------------'
+;;                         +--------+
 
 (defclass stream (flowbuffer-include emitter-include error-include)
   ((id :reader stream-id :initarg :id :type integer
@@ -65,10 +65,10 @@
    (send-buffer :initform nil)
    (queue :initform nil)))
 
-; Note that you should never have to call MAKE-INSTANCE directly. To
-; create a new client initiated stream, use (DEFMETHOD NEW-STREAM
-; (CONNECTION ...)). Similarly, CONNECTION will emit new stream
-; objects, when new stream frames are received.
+;; Note that you should never have to call MAKE-INSTANCE directly. To
+;; create a new client initiated stream, use (DEFMETHOD NEW-STREAM
+;; (CONNECTION ...)). Similarly, CONNECTION will emit new stream
+;; objects, when new stream frames are received.
 
 (defmethod initialize-instance :after ((stream stream) &key)
   (with-slots (window) stream
@@ -85,6 +85,8 @@
     (if (member state '(:open :half-closed-remote)) t nil)))
 
 (defmethod update-priority ((stream stream) frame)
+  "Update the priority of a STREAM based on the FRAME, including
+notification to other STREAMS to keep dependencies updated."
   (with-slots (priority dependency connection) stream
     (setf priority (getf frame :weight))
     (let ((dep-id (getf frame :stream-dependency))
@@ -148,45 +150,58 @@ control window size."
     (complete-transition stream frame)))
 
 (defun queueablep (frame)
+  "Return T if FRAME is a frame or a function; otherwise return NIL."
   (or (framep frame) (functionp frame)))
 
 (defmethod clear-queue ((stream stream))
+  "Clear the frame queue."
   (with-slots (queue) stream
     (setf queue nil)))
 
 (defmethod enqueue ((stream stream) frame)
+  "Add a FRAME to the queue."
   (check-type frame (satisfies queueablep))
   (with-slots (queue) stream
     (push frame queue)))
 
 (defmethod enqueue-many ((stream stream) (frames list))
+  "Add a list of FRAMES to the queue."
   (dolist (frame frames)
     (enqueue stream frame))
   nil)
 
 (defmethod dequeue ((stream stream))
+  "Remove the next FRAME to send from the queue."
   (with-slots (queue) stream
     (shift queue)))
 
 (defmethod enqueue-first ((stream stream) frame)
+  "Add a FRAME to the queue but in such a position that it will be dequeued next."
   (check-type frame (satisfies queueablep))
   (with-slots (queue) stream
     (unshift frame queue)))
 
 (defmethod enqueue-first-many ((stream stream) (frames list))
+  "Add a list of FRAMES to the queue but in such a position that they
+will be dequeued next, specifically with the first element of FRAMES
+being the next frame dequeued."
   (dolist (frame (reverse frames))
     (enqueue-first stream frame))
   nil)
 
 (defmethod dequeue-back ((stream stream))
+  "Remove a frame from the queue but pick the one that ordinarily would have been last."
   (with-slots (queue) stream
     (pop queue)))
 
 (defmethod queue-populated-p ((stream stream))
+  "Return T if the queue contains entries; otherwise return NIL."
   (with-slots (queue) stream
     (not (endp queue))))
 
 (defmethod shutdown ((stream stream))
+  "Called by SHUTDOWN-CONNECTION to facilitate a closed socket or
+similar end to communication."
   (clear-queue stream))
 
 (defmethod headers ((stream stream) headers &key (end-headers t) (end-stream nil) (action :send))
@@ -202,6 +217,7 @@ control window size."
       (:return  (list frame)))))
 
 (defmethod promise ((stream stream) headers &optional (end-headers t) block)
+  "Sends a PUSH_PROMISE to the peer."
   (when (null block)
     (error "must provide callback"))
 
@@ -226,6 +242,7 @@ performed by the client)."
       (:return  frames))))
 
 (defmethod pump-queue ((stream stream) n)
+  "Call SEND on the next N number of FRAMES in the queue."
   (let (yield-flag-p)
     (while-max (and (queue-populated-p stream) (not yield-flag-p)) n
       (let ((frame (dequeue stream)))
@@ -291,49 +308,49 @@ to performing any application processing."
 success headers have been sent and the stream is ready for DATA frames."
   (change-class stream 'connect-stream))
 
-; HTTP/2 Stream States
-; - http://tools.ietf.org/html/draft-ietf-httpbis-http2-05#section-5
-;
-;                       +--------+
-;                 PP    |        |    PP
-;              ,--------|  idle  |--------.
-;             /         |        |         \
-;            v          +--------+          v
-;     +----------+          |           +----------+
-;     |          |          | H         |          |
-; ,---| reserved |          |           | reserved |---.
-; |   | (local)  |          v           | (remote) |   |
-; |   +----------+      +--------+      +----------+   |
-; |      |          ES  |        |  ES          |      |
-; |      | H    ,-------|  open  |-------.      | H    |
-; |      |     /        |        |        \     |      |
-; |      v    v         +--------+         v    v      |
-; |   +----------+          |           +----------+   |
-; |   |   half   |          |           |   half   |   |
-; |   |  closed  |          | R         |  closed  |   |
-; |   | (remote) |          |           | (local)  |   |
-; |   +----------+          |           +----------+   |
-; |        |                v                 |        |
-; |        |  ES / R    +--------+  ES / R    |        |
-; |        `----------->|        |<-----------'        |
-; |  R                  | closed |                  R  |
-; `-------------------->|        |<--------------------'
-;                       +--------+
-;
+;; HTTP/2 Stream States
+;; - http://tools.ietf.org/html/draft-ietf-httpbis-http2-05#section-5
+;;
+;;                       +--------+
+;;                 PP    |        |    PP
+;;              ,--------|  idle  |--------.
+;;             /         |        |         \
+;;            v          +--------+          v
+;;     +----------+          |           +----------+
+;;     |          |          | H         |          |
+;; ,---| reserved |          |           | reserved |---.
+;; |   | (local)  |          v           | (remote) |   |
+;; |   +----------+      +--------+      +----------+   |
+;; |      |          ES  |        |  ES          |      |
+;; |      | H    ,-------|  open  |-------.      | H    |
+;; |      |     /        |        |        \     |      |
+;; |      v    v         +--------+         v    v      |
+;; |   +----------+          |           +----------+   |
+;; |   |   half   |          |           |   half   |   |
+;; |   |  closed  |          | R         |  closed  |   |
+;; |   | (remote) |          |           | (local)  |   |
+;; |   +----------+          |           +----------+   |
+;; |        |                v                 |        |
+;; |        |  ES / R    +--------+  ES / R    |        |
+;; |        `----------->|        |<-----------'        |
+;; |  R                  | closed |                  R  |
+;; `-------------------->|        |<--------------------'
+;;                       +--------+
+;;
 (defmethod transition ((stream stream) frame sending)
   (with-slots (state closed) stream
     (case state
-      ; All streams start in the "idle" state.  In this state, no frames
-      ; have been exchanged.
-      ; *  Sending or receiving a HEADERS frame causes the stream to
-      ;    become "open".  The stream identifier is selected as described
-      ;    in Section 5.1.1.
-      ; *  Sending a PUSH_PROMISE frame marks the associated stream for
-      ;    later use.  The stream state for the reserved stream
-      ;    transitions to "reserved (local)".
-      ; *  Receiving a PUSH_PROMISE frame marks the associated stream as
-      ;    reserved by the remote peer.  The state of the stream becomes
-      ;    "reserved (remote)".
+      ;; All streams start in the "idle" state.  In this state, no frames
+      ;; have been exchanged.
+      ;; *  Sending or receiving a HEADERS frame causes the stream to
+      ;;    become "open".  The stream identifier is selected as described
+      ;;    in Section 5.1.1.
+      ;; *  Sending a PUSH_PROMISE frame marks the associated stream for
+      ;;    later use.  The stream state for the reserved stream
+      ;;    transitions to "reserved (local)".
+      ;; *  Receiving a PUSH_PROMISE frame marks the associated stream as
+      ;;    reserved by the remote peer.  The state of the stream becomes
+      ;;    "reserved (remote)".
       (:idle
        (if sending
 	   (case (getf frame :type)
@@ -357,18 +374,18 @@ success headers have been sent and the stream is ready for DATA frames."
 	     (otherwise
 	      (stream-error stream :type :protocol-error)))))
 
-      ; A stream in the "reserved (local)" state is one that has been
-      ; promised by sending a PUSH_PROMISE frame.  A PUSH_PROMISE frame
-      ; reserves an idle stream by associating the stream with an open
-      ; stream that was initiated by the remote peer (see Section 8.2).
-      ; *  The endpoint can send a HEADERS frame.  This causes the stream
-      ;    to open in a "half closed (remote)" state.
-      ; *  Either endpoint can send a RST_STREAM frame to cause the stream
-      ;    to become "closed".  This also releases the stream reservation.
-      ; An endpoint MUST NOT send any other type of frame in this state.
-      ; Receiving any frame other than RST_STREAM or PRIORITY MUST be
-      ; treated as a connection error (Section 5.4.1) of type
-      ; PROTOCOL_ERROR.
+      ;; A stream in the "reserved (local)" state is one that has been
+      ;; promised by sending a PUSH_PROMISE frame.  A PUSH_PROMISE frame
+      ;; reserves an idle stream by associating the stream with an open
+      ;; stream that was initiated by the remote peer (see Section 8.2).
+      ;; *  The endpoint can send a HEADERS frame.  This causes the stream
+      ;;    to open in a "half closed (remote)" state.
+      ;; *  Either endpoint can send a RST_STREAM frame to cause the stream
+      ;;    to become "closed".  This also releases the stream reservation.
+      ;; An endpoint MUST NOT send any other type of frame in this state.
+      ;; Receiving any frame other than RST_STREAM or PRIORITY MUST be
+      ;; treated as a connection error (Section 5.4.1) of type
+      ;; PROTOCOL_ERROR.
       (:reserved-local
        (if sending
 	   (setf state (case (getf frame :type)
@@ -380,16 +397,16 @@ success headers have been sent and the stream is ready for DATA frames."
 			 (:priority state)
 			 (otherwise (stream-error stream))))))
       
-      ; A stream in the "reserved (remote)" state has been reserved by a
-      ; remote peer.
-      ; *  Receiving a HEADERS frame causes the stream to transition to
-      ;    "half closed (local)".
-      ; *  Either endpoint can send a RST_STREAM frame to cause the stream
-      ;    to become "closed".  This also releases the stream reservation.
-      ; Receiving any other type of frame MUST be treated as a stream
-      ; error (Section 5.4.2) of type PROTOCOL_ERROR.  An endpoint MAY
-      ; send RST_STREAM or PRIORITY frames in this state to cancel or
-      ; reprioritize the reserved stream.
+      ;; A stream in the "reserved (remote)" state has been reserved by a
+      ;; remote peer.
+      ;; *  Receiving a HEADERS frame causes the stream to transition to
+      ;;    "half closed (local)".
+      ;; *  Either endpoint can send a RST_STREAM frame to cause the stream
+      ;;    to become "closed".  This also releases the stream reservation.
+      ;; Receiving any other type of frame MUST be treated as a stream
+      ;; error (Section 5.4.2) of type PROTOCOL_ERROR.  An endpoint MAY
+      ;; send RST_STREAM or PRIORITY frames in this state to cancel or
+      ;; reprioritize the reserved stream.
       (:reserved-remote
        (if sending
 	   (setf state (case (getf frame :type)
@@ -401,17 +418,17 @@ success headers have been sent and the stream is ready for DATA frames."
 			 (:rst-stream (event stream :remote-rst))
 			 (otherwise (stream-error stream))))))
       
-      ; The "open" state is where both peers can send frames of any type.
-      ; In this state, sending peers observe advertised stream level flow
-      ; control limits (Section 5.2).
-      ; * From this state either endpoint can send a frame with a END_STREAM
-      ;   flag set, which causes the stream to transition into one of the
-      ;   "half closed" states: an endpoint sending a END_STREAM flag causes
-      ;   the stream state to become "half closed (local)"; an endpoint
-      ;   receiving a END_STREAM flag causes the stream state to become
-      ;   "half closed (remote)".
-      ; * Either endpoint can send a RST_STREAM frame from this state,
-      ;   causing it to transition immediately to "closed".
+      ;; The "open" state is where both peers can send frames of any type.
+      ;; In this state, sending peers observe advertised stream level flow
+      ;; control limits (Section 5.2).
+      ;; * From this state either endpoint can send a frame with a END_STREAM
+      ;;   flag set, which causes the stream to transition into one of the
+      ;;   "half closed" states: an endpoint sending a END_STREAM flag causes
+      ;;   the stream state to become "half closed (local)"; an endpoint
+      ;;   receiving a END_STREAM flag causes the stream state to become
+      ;;   "half closed (remote)".
+      ;; * Either endpoint can send a RST_STREAM frame from this state,
+      ;;   causing it to transition immediately to "closed".
       (:open
        (if sending
 	   (case (getf frame :type)
@@ -427,14 +444,14 @@ success headers have been sent and the stream is ready for DATA frames."
 	     (:rst-stream
 	      (event stream :remote-rst)))))
       
-      ; A stream that is "half closed (local)" cannot be used for sending
-      ; frames.
-      ; A stream transitions from this state to "closed" when a frame that
-      ; contains a END_STREAM flag is received, or when either peer sends
-      ; a RST_STREAM frame.
-      ; A receiver can ignore WINDOW_UPDATE or PRIORITY frames in this
-      ; state.  These frame types might arrive for a short period after a
-      ; frame bearing the END_STREAM flag is sent.
+      ;; A stream that is "half closed (local)" cannot be used for sending
+      ;; frames.
+      ;; A stream transitions from this state to "closed" when a frame that
+      ;; contains a END_STREAM flag is received, or when either peer sends
+      ;; a RST_STREAM frame.
+      ;; A receiver can ignore WINDOW_UPDATE or PRIORITY frames in this
+      ;; state.  These frame types might arrive for a short period after a
+      ;; frame bearing the END_STREAM flag is sent.
       (:half-closed-local
        (if sending
 	   (case (getf frame :type)
@@ -453,16 +470,16 @@ success headers have been sent and the stream is ready for DATA frames."
 	     ((:window-update :priority)
 	      (setf (getf frame :ignore) t)))))
 
-      ; A stream that is "half closed (remote)" is no longer being used by
-      ; the peer to send frames.  In this state, an endpoint is no longer
-      ; obligated to maintain a receiver flow control window if it
-      ; performs flow control.
-      ; If an endpoint receives additional frames for a stream that is in
-      ; this state it MUST respond with a stream error (Section 5.4.2) of
-      ; type STREAM_CLOSED.
-      ; A stream can transition from this state to "closed" by sending a
-      ; frame that contains a END_STREAM flag, or when either peer sends a
-      ; RST_STREAM frame.
+      ;; A stream that is "half closed (remote)" is no longer being used by
+      ;; the peer to send frames.  In this state, an endpoint is no longer
+      ;; obligated to maintain a receiver flow control window if it
+      ;; performs flow control.
+      ;; If an endpoint receives additional frames for a stream that is in
+      ;; this state it MUST respond with a stream error (Section 5.4.2) of
+      ;; type STREAM_CLOSED.
+      ;; A stream can transition from this state to "closed" by sending a
+      ;; frame that contains a END_STREAM flag, or when either peer sends a
+      ;; RST_STREAM frame.
       (:half-closed-remote
        (if sending
 	   (case (getf frame :type)
@@ -480,26 +497,26 @@ success headers have been sent and the stream is ready for DATA frames."
 	     (otherwise
 	      (stream-error stream :type :stream-closed)))))
 
-      ; An endpoint MUST NOT send frames on a closed stream. An endpoint
-      ; that receives a frame after receiving a RST_STREAM or a frame
-      ; containing a END_STREAM flag on that stream MUST treat that as a
-      ; stream error (Section 5.4.2) of type STREAM_CLOSED.
-      ;
-      ; WINDOW_UPDATE or PRIORITY frames can be received in this state for
-      ; a short period after a a frame containing an END_STREAM flag is
-      ; sent.  Until the remote peer receives and processes the frame
-      ; bearing the END_STREAM flag, it might send either frame type.
-      ;
-      ; If this state is reached as a result of sending a RST_STREAM
-      ; frame, the peer that receives the RST_STREAM might have already
-      ; sent - or enqueued for sending - frames on the stream that cannot
-      ; be withdrawn. An endpoint MUST ignore frames that it receives on
-      ; closed streams after it has sent a RST_STREAM frame.
-      ;
-      ; An endpoint might receive a PUSH_PROMISE or a CONTINUATION frame
-      ; after it sends RST_STREAM. PUSH_PROMISE causes a stream to become
-      ; "reserved". If promised streams are not desired, a RST_STREAM can
-      ; be used to close any of those streams.
+      ;; An endpoint MUST NOT send frames on a closed stream. An endpoint
+      ;; that receives a frame after receiving a RST_STREAM or a frame
+      ;; containing a END_STREAM flag on that stream MUST treat that as a
+      ;; stream error (Section 5.4.2) of type STREAM_CLOSED.
+      ;;
+      ;; WINDOW_UPDATE or PRIORITY frames can be received in this state for
+      ;; a short period after a a frame containing an END_STREAM flag is
+      ;; sent.  Until the remote peer receives and processes the frame
+      ;; bearing the END_STREAM flag, it might send either frame type.
+      ;;
+      ;; If this state is reached as a result of sending a RST_STREAM
+      ;; frame, the peer that receives the RST_STREAM might have already
+      ;; sent - or enqueued for sending - frames on the stream that cannot
+      ;; be withdrawn. An endpoint MUST ignore frames that it receives on
+      ;; closed streams after it has sent a RST_STREAM frame.
+      ;;
+      ;; An endpoint might receive a PUSH_PROMISE or a CONTINUATION frame
+      ;; after it sends RST_STREAM. PUSH_PROMISE causes a stream to become
+      ;; "reserved". If promised streams are not desired, a RST_STREAM can
+      ;; be used to close any of those streams.
       (:closed
        (if sending
 	   (case (getf frame :type)

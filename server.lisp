@@ -1,13 +1,13 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
 (in-package :cl-http2-protocol)
 
-; HTTP/2 server connection class that implements appropriate header
-; compression / decompression algorithms and stream management logic.
-;
-; Your code is responsible for feeding request data to the server object,
-; which in turn performs all of the necessary HTTP/2 decoding / encoding,
-; state management, and the rest. See README.md for an example.
+;; HTTP/2 server connection class that implements appropriate header
+;; compression / decompression algorithms and stream management logic.
+;;
+;; Your code is responsible for feeding request data to the server object,
+;; which in turn performs all of the necessary HTTP/2 decoding / encoding,
+;; state management, and the rest. See README.md for an example.
 
 (defclass server (connection)
   ((stream-id :initform 2)
@@ -17,12 +17,12 @@
    (push-enabled :reader push-enabled :initform t :type (member t nil)))
   (:documentation "HTTP/2 server object"))
 
-; Technically HTTP/2 as a protocol does not differentiate push
-; between client/server, and the protocol can do it either way; but
-; HTTP semantics applied to the protocol dictate that only a server
-; pushes (it makes no sense for a client to push).
+;; Technically HTTP/2 as a protocol does not differentiate push
+;; between client/server, and the protocol can do it either way; but
+;; HTTP semantics applied to the protocol dictate that only a server
+;; pushes (it makes no sense for a client to push).
 
-; a SERVER knows what to do with SETTINGS_ENABLE_PUSH so define a method
+;; a SERVER knows what to do with SETTINGS_ENABLE_PUSH so define a method
 (defmethod connection-setting ((connection server) (key (eql :settings-enable-push)) value)
   (with-slots (push-enabled) connection
     (setf push-enabled (if (= value 1) t nil))))
@@ -44,8 +44,8 @@
 
 	(funcall callback promise)))))
 
-; Again, it only makes sense for a server to emit an ALTSVC frame in
-; normal HTTP operations:
+;; Again, it only makes sense for a server to emit an ALTSVC frame in
+;; normal HTTP operations:
 
 (defmethod altsvc ((server server) max-age port protocol-identifier host origin)
   "Issue ALTSVC frame to peer."

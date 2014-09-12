@@ -1,4 +1,5 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Portions copied from CL+SSL, also under MIT License. Please see README.md for details.
 
 ;; Add & override some functions in CL+SSL
 (in-package :cl+ssl)
@@ -49,8 +50,8 @@
   (larg :long)
   (parg :pointer))
 
-; we just overrode SSL_CTX_ctrl to have the last parameter be a pointer
-; override the places it is used in CL+SSL to make zeros into pointers
+;; we just overrode SSL_CTX_ctrl to have the last parameter be a pointer
+;; override the places it is used in CL+SSL to make zeros into pointers
 (defun ssl-ctx-set-session-cache-mode (ctx mode)
   (ssl-ctx-ctrl ctx +SSL_CTRL_SET_SESS_CACHE_MODE+ mode (cffi:null-pointer)))
 (defun install-handle-and-bio (stream handle socket unwrap-stream-p)

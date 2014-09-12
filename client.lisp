@@ -1,13 +1,13 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
 (in-package :cl-http2-protocol)
 
-; HTTP/2 client connection class that implements appropriate header
-; compression / decompression algorithms and stream management logic.
-;
-; Your code is responsible for driving the client object, which in turn
-; performs all of the necessary HTTP/2 encoding / decoding, state
-; management, and the rest. See README.md for an example.
+;; HTTP/2 client connection class that implements appropriate header
+;; compression / decompression algorithms and stream management logic.
+;;
+;; Your code is responsible for driving the client object, which in turn
+;; performs all of the necessary HTTP/2 encoding / decoding, state
+;; management, and the rest. See README.md for an example.
 
 (defclass client (connection)
   ((stream-id :initform 1)

@@ -1,4 +1,4 @@
-; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
+;; Copyright (c) 2014 Akamai Technologies, Inc. (MIT License)
 
 (in-package :cl-http2-protocol)
 
@@ -23,6 +23,6 @@
   (deletef-if (gethash event (listeners emitter))
 	      (lambda (cb) (eq (apply cb args) :delete))))
 
-; Port note: no listeners function because we rolled the gethash into
-; add-listener/emit, which is necessary because we're using things
-; like push which need a place
+;; Port note: no listeners function because we rolled the gethash into
+;; add-listener/emit, which is necessary because we're using things
+;; like push which need a place
