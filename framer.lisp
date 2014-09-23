@@ -82,6 +82,9 @@
   (defparameter *uint16* "n")
   (defparameter *uint32* "N"))
 
+(defparameter *handle-overstated-frame-length-bug* t
+  "Some browsers accidentally sometimes use the frame length including the common 9-byte header as the stated length.")
+
 (defclass framer () ()
   (:documentation "Performs encoding, decoding, and validation of binary HTTP 2.0 frames."))
 
@@ -255,17 +258,18 @@ does not contain enough data, no further work is performed."
     (return-from parse nil))
   (let ((frame (read-common-header framer buf)))
 
-    ;;;; deal with a bug in Chrome Canary version 39.0.2151.2 canary (64-bit)
-    ;;(when (and (member (getf frame :type) '(:headers :continuation))
-    ;;	       (= (buffer-size buf) (getf frame :length)))
-    ;;  (format t "PRE-PARSE insufficient bytes for stated length but assuming it's a Canary bug and proceeding~%")
-    ;;  (format t "Final bytes that are snipped: ~S~%" (subseq (buffer-data buf)
-    ;;							     (- (buffer-size buf) +common-header-size+)
-    ;;							     (buffer-size buf)))
-    ;;  (decf (getf frame :length) +common-header-size+))
+    (when *handle-overstated-frame-length-bug*
+      ;; deal with a bug in Chrome Canary version 39.0.2151.2 canary (64-bit)
+      (when (and (member (getf frame :type) '(:headers :continuation))
+		 (= (buffer-size buf) (getf frame :length)))
+	(format t "PRE-PARSE insufficient bytes for stated length, treating as a bug...~%")
+	(decf (getf frame :length) +common-header-size+)))
 
     (when (< (buffer-size buf) (+ +common-header-size+ (getf frame :length)))
-	  (return-from parse nil))
+      (return-from parse nil))
+
+    ;; (format t "PARSE: ~S~%" (subseq (buffer-data buf) 0 (+ +common-header-size+ (getf frame :length))))
+
     (buffer-read buf +common-header-size+)  ; eat what was processed already
 
     ;; handle the case where the entire frame appears to be available:
