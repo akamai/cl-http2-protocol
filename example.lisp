@@ -120,7 +120,7 @@
   (if (typep event 'as:tcp-info)
       (let* ((socket (tcp-socket event))
 	     (conn (socket-data socket)))
-	(say "Event ~S on socket ~S~%" socket event)
+	(say "Event ~S on socket ~S~%" event socket)
 	(flet ((done-with-socket ()
 		 (say "Done with socket ~S~%" socket)
 		 (when conn
@@ -152,7 +152,10 @@ functions such as (HEADERS ...) to make a request."
     (on conn :frame
 	(lambda (bytes)
 	  (maybe-dump-bytes :send (buffer-data bytes))
-	  (write-socket-data socket (buffer-data bytes))))
+	  (handler-case
+	      (write-socket-data socket (buffer-data bytes))
+	    (as:socket-closed ()
+	      (event-handler (make-condition 'as:tcp-eof :socket socket))))))
     
     (let ((stream (new-stream conn)))
 
@@ -269,7 +272,10 @@ reply to the request."
     (on conn :frame
 	(lambda (bytes)
 	  (maybe-dump-bytes :send (buffer-data bytes))
-	  (write-socket-data socket (buffer-data bytes))))
+	  (handler-case
+	      (write-socket-data socket (buffer-data bytes))
+	    (as:socket-closed ()
+	      (event-handler (make-condition 'as:tcp-eof :socket socket))))))
       
     (on conn :goaway
 	(lambda (s e m)
