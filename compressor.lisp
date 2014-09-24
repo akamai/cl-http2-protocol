@@ -302,8 +302,7 @@ on local role: client (:TYPE :REQUEST) or server (:TYPE :RESPONSE)."))
 (defmethod preprocess-headers (headers)
   "Performs three corrections to header sets:
 1. Collects psuedo-headers (those that begin with a colon like :method) to the front.
-2. Combines duplicate headers (except cookie and set-cookie) with a null byte between values.
-3. Splits cookie headers by colon, space, null in order to make each one separate for compression.
+2. Splits cookie headers by colon, space, null in order to make each one separate for compression.
 In the event that headers is not in need of changes, it is passed back and is EQ to the one passed in;
 otherwise, a fresh list is passed back, although header entries may share structure with the original."
   (labels ((is-pseudo-header-key (key)
@@ -316,16 +315,6 @@ otherwise, a fresh list is passed back, although header entries may share struct
 		else
 		collect header into other-headers
 		finally (return (nconc pseudo-headers other-headers))))
-	   (combine-dups-except-cookies (headers)
-	     (loop
-		for header in headers
-		for (key . value) = header
-		for found = (find key new-headers :key #'car :test #'string=)
-		if (and found (not (member key '("cookie" "set-cookie") :test #'string=)))
-		do (setf (cdr found) (concatenate 'string (cdr found) #.(format nil "~C" #\Null) value))
-		else
-		collect header into new-headers
-		finally (return new-headers)))
 	   (split-cookies (headers)
 	     (loop
 		for header in headers
@@ -344,10 +333,6 @@ otherwise, a fresh list is passed back, although header entries may share struct
        count (and (or (is-pseudo-header-key key) (setf in-pseudo-headers nil))
 		  (not in-pseudo-headers))
        into need-sort
-       when (zerop has-dups)
-       count (and (not (member key '("cookie" "set-cookie") :test #'string=))
-		  (find key headers :key #'car :test #'string= :end i))
-       into has-dups
        when (zerop has-multi-cookie)
        count (and (string= key "cookie")
 		  (find-if (lambda (c) (member c '(#\; #\Space #\Null) :test #'char=)) value))
@@ -355,8 +340,6 @@ otherwise, a fresh list is passed back, although header entries may share struct
        finally (return (progn
 			 (when (plusp need-sort)
 			   (setf headers (sort-pseudo-headers-to-front headers)))
-			 (when (plusp has-dups)
-			   (setf headers (combine-dups-except-cookies headers)))
 			 (when (plusp has-multi-cookie)
 			   (setf headers (split-cookies headers)))
 			 headers)))))
