@@ -204,17 +204,16 @@ being the next frame dequeued."
 similar end to communication."
   (clear-queue stream))
 
-(defmethod headers ((stream stream) headers &key (end-headers t) (end-stream nil) (action :send))
+(defmethod headers ((stream stream) headers &key (end-headers t) (end-stream nil) (action 'send))
   "Sends a HEADERS frame containing HTTP response headers."
   (check-type headers cons "a list containing required minimum headers")
   (check-headers-size (stream-connection stream) headers)
   (let ((frame (list :type :headers
 		     :flags `(,@(if end-headers '(:end-headers)) ,@(if end-stream '(:end-stream)))
 		     :payload headers)))
-    (ecase action
-      (:send    (send stream frame))
-      (:enqueue (enqueue stream frame))
-      (:return  (list frame)))))
+    (when action
+      (funcall action stream frame))
+    (list frame)))
 
 (defmethod promise ((stream stream) headers &optional (end-headers t) block)
   "Sends a PUSH_PROMISE to the peer."
@@ -232,17 +231,18 @@ performed by the client)."
       (stream-error stream))
     (send stream (list :type :priority :priority p))))
 
-(defmethod data ((stream stream) payload &key (end-stream t) (action :send))
+(defmethod data ((stream stream) payload &key (end-stream t) (action 'send))
   "Sends DATA frame containing response payload."
   (let* ((frame (list :type :data :flags (if end-stream '(:end-stream)) :payload payload))
 	 (frames (maybe-downsize-frame (stream-connection stream) frame)))
-    (ecase action
-      (:send    (dolist (frame frames) (send stream frame)))
-      (:enqueue (dolist (frame frames) (enqueue stream frame)))
-      (:return  frames))))
+    (when action
+      (dolist (frame* frames)
+	(funcall action stream frame*)))
+    frames))
 
 (defmethod pump-queue ((stream stream) n)
-  "Call SEND on the next N number of FRAMES in the queue."
+  "Generally, call SEND on the next N number of FRAMES in the queue.
+Allows the queue to contain lambdas instead of frames and handles them."
   (let (yield-flag-p)
     (while-max (and (queue-populated-p stream) (not yield-flag-p)) n
       (let ((frame (dequeue stream)))

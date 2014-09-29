@@ -52,7 +52,8 @@
 	   #:headers #:data #:promise #:reprioritize
 	   #:stream-close #:cancel #:refuse #:restrict
 	   #:nudge #:extensible #:experimental
-	   #:enqueue #:queue-populated-p #:clear-queue
+	   #:enqueue #:enqueue-many
+	   #:queue-populated-p #:clear-queue
 	   #:pump-stream-queues #:pump-queue))
 
 (defpackage :cl-http2-protocol-example
