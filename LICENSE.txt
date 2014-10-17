@@ -12,6 +12,10 @@ SSL-CMUCL source code was written by Eric Marsden and includes
 contributions by Jochen Schmidt. Development into CL+SSL was done by
 David Lichteblau. License: MIT-style."
 
+Contains code from CL-ASYNC (https://github.com/orthecreedence/cl-async)
+which contains this notice: "As always, my code is MIT licenced. Do
+whatever the hell you want with it. Enjoy!"
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
